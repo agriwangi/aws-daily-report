@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS Daily Report — PT. Agri Wangi Sentosa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- LOADING OVERLAY -->
+<!-- ============================================================ -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <p style="color:var(--on-surface-variant);font-size:13px;">Memuat AWS Daily Report...</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- LANDING PAGE (ditampilkan sebelum login lewat tombol "Masuk") -->
+<!-- ============================================================ -->
+<div class="landing" id="landingScreen" style="display:none;">
+  <nav class="landing-nav">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="auth-logo" style="width:38px;height:38px;font-size:18px;margin:0;">AWS</div>
+      <b style="color:var(--primary);">AWS Daily Report</b>
+    </div>
+    <button class="btn btn-primary" onclick="document.getElementById('landingScreen').style.display='none';document.getElementById('authScreen').style.display='flex';">Masuk</button>
+  </nav>
+  <section class="landing-hero">
+    <div class="txt">
+      <h1>Laporan Harian Kebun, Otomatis &amp; Real-time.</h1>
+      <p>AWS Daily Report membantu PT. Agri Wangi Sentosa memantau absensi, produksi, dan isu operasional setiap divisi &amp; afdeling — dengan deteksi masalah otomatis dan dashboard yang selalu segar.</p>
+      <button class="btn btn-primary" onclick="document.getElementById('landingScreen').style.display='none';document.getElementById('authScreen').style.display='flex';">Masuk ke Aplikasi →</button>
+    </div>
+    <div class="visual">
+      <span class="material-symbols-outlined" style="font-size:96px;">eco</span>
+    </div>
+  </section>
+  <section class="feature-grid">
+    <div class="feature-card"><span class="material-symbols-outlined">fact_check</span><h3>Absensi &amp; Produksi</h3><p>Input manual atau impor massal dari Excel dengan deteksi kolom otomatis — data lama tidak pernah hilang.</p></div>
+    <div class="feature-card"><span class="material-symbols-outlined">troubleshoot</span><h3>Deteksi Isu Otomatis</h3><p>Mesin deteksi membandingkan data terhadap ambang batas dan membuat tiket rekomendasi secara otomatis.</p></div>
+    <div class="feature-card"><span class="material-symbols-outlined">shield_person</span><h3>6 Peran Akses (RBAC)</h3><p>Superadmin, Manager, SPV, Admin, Askep, dan Asisten — masing-masing dengan cakupan data yang sesuai.</p></div>
+  </section>
+  <footer class="landing-footer">&copy; 2026 PT. Agri Wangi Sentosa — AWS Daily Report v2.0.0 (REST)</footer>
+</div>
+
+<!-- ============================================================ -->
+<!-- AUTH SCREEN (Login) -->
+<!-- ============================================================ -->
+<div class="auth-wrap" id="authScreen" style="display:none;">
+  <div class="auth-card">
+    <div class="auth-logo">AWS</div>
+    <h2>AWS Daily Report</h2>
+    <p class="sub">Masuk untuk mengakses dashboard operasional PT. Agri Wangi Sentosa.</p>
+    <div class="field"><label>Username</label><input type="text" id="loginUsername" placeholder="username" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="btn btn-primary btn-block" id="btnLogin">Masuk</button>
+    <div class="err-msg" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- APP SHELL -->
+<!-- ============================================================ -->
+<div id="appShell">
+  <aside class="sidebar" id="sidebar">
+    <div>
+      <div class="sidebar-brand">
+        <div class="logo">AWS</div>
+        <div><div class="ttl">AWS Daily Report</div><div class="ver">v2.0.0-rest</div></div>
+      </div>
+      <ul class="sidebar-nav">
+        <li class="nav-item" data-nav-page="dashboard" data-page="dashboard"><span class="left"><span class="material-symbols-outlined">dashboard</span>Dashboard</span></li>
+        <li class="nav-item" data-nav-page="input" data-page="input"><span class="left"><span class="material-symbols-outlined">edit_note</span>Input Data</span></li>
+        <li class="nav-item" data-nav-page="upload" data-page="upload"><span class="left"><span class="material-symbols-outlined">upload_file</span>Unggah Excel</span></li>
+        <li class="nav-item" data-nav-page="absensi" data-page="absensi"><span class="left"><span class="material-symbols-outlined">event_available</span>Absensi</span></li>
+        <li class="nav-item" data-nav-page="produksi" data-page="produksi"><span class="left"><span class="material-symbols-outlined">agriculture</span>Produksi</span></li>
+        <li class="nav-item" data-nav-page="isu" data-page="isu"><span class="left"><span class="material-symbols-outlined">report</span>Isu &amp; Rekomendasi</span></li>
+        <li class="nav-item" data-nav-page="laporan" data-page="laporan"><span class="left"><span class="material-symbols-outlined">summarize</span>Laporan &amp; Ekspor</span></li>
+        <li class="nav-item" data-nav-page="pengaturan" data-page="pengaturan"><span class="left"><span class="material-symbols-outlined">settings</span>Pengaturan</span></li>
+      </ul>
+    </div>
+    <div>
+      <div class="sidebar-user">
+        <div class="avatar" id="sbUserAvatar">?</div>
+        <div class="meta"><div class="nm" id="sbUserName">—</div><div class="rl" id="sbUserRole">—</div></div>
+      </div>
+      <div class="sidebar-logout" id="btnLogout" style="cursor:pointer;"><span class="material-symbols-outlined" style="font-size:17px;">logout</span>Keluar</div>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn"><span class="material-symbols-outlined">menu</span></button>
+      <div class="breadcrumb"><b id="breadcrumbTitle">Dashboard</b></div>
+    </div>
+    <div class="topbar-right">
+      <div class="sync-pill"><span class="sync-dot" id="syncDot"></span><span id="syncLabel">Tersinkron</span></div>
+    </div>
+  </header>
+
+  <main class="content" id="mainContent"></main>
+
+  <nav class="bottom-nav">
+    <button class="bn-item" data-nav-page="dashboard" data-page="dashboard"><span class="material-symbols-outlined">dashboard</span>Dashboard</button>
+    <button class="bn-item" data-nav-page="input" data-page="input"><span class="material-symbols-outlined">edit_note</span>Input</button>
+    <button class="bn-item" data-nav-page="isu" data-page="isu"><span class="material-symbols-outlined">report</span>Isu</button>
+    <button class="bn-item" data-nav-page="laporan" data-page="laporan"><span class="material-symbols-outlined">summarize</span>Laporan</button>
+    <button class="bn-item" data-nav-page="pengaturan" data-page="pengaturan"><span class="material-symbols-outlined">settings</span>Atur</button>
+  </nav>
+</div>
+
+<div id="toastHost"></div>
+
+<!-- ============================================================ -->
+<!-- LIBRARIES (CDN) -->
+<!-- ============================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- ============================================================ -->
+<!-- APP SCRIPTS -->
+<!-- ============================================================ -->
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+
+<script>
+  // Tampilkan landing page dulu kalau belum ada sesi tersimpan; kalau ada sesi, app.js
+  // (tryRestoreSession) akan langsung menampilkan appShell dan melewati landing/auth.
+  (function () {
+    try {
+      var raw = localStorage.getItem('aws_rest:' + CACHE_SCHEMA_VERSION + ':session');
+      if (!raw) document.getElementById('landingScreen').style.display = 'block';
+    } catch (e) {
+      document.getElementById('landingScreen').style.display = 'block';
+    }
+  })();
+</script>
+
+</body>
+</html>
