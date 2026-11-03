@@ -691,7 +691,7 @@ registerPage('pengaturan', {
   roles: ['Superadmin', 'Manager'],
   template: () => `
     <div class="page-head"><div><h1>Pengaturan</h1><p>Ambang batas deteksi isu, dan manajemen pengguna.</p></div></div>
-    <div class="tabs" id="setTabs"><button class="tab-btn active" data-tab="threshold">Threshold</button><button class="tab-btn" data-tab="users">Pengguna</button><button class="tab-btn" data-tab="migrasi">Migrasi Data (v1)</button></div>
+    <div class="tabs" id="setTabs"><button class="tab-btn active" data-tab="threshold">Threshold</button><button class="tab-btn" data-tab="users">Pengguna</button><button class="tab-btn" data-tab="akun">Akun Saya</button><button class="tab-btn" data-tab="migrasi">Migrasi Data (v1)</button></div>
     <div class="card" id="setThresholdWrap">
       <div class="form-row">
         <div class="field"><label>Maks Mangkir (%)</label><input type="number" id="thMangkir"></div>
@@ -707,6 +707,15 @@ registerPage('pengaturan', {
         <button class="btn btn-outline btn-sm" id="btnAddUser">+ Tambah Pengguna</button>
       </div>
       <div class="table-wrap"><table class="data-table" id="usersTable"><thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody><tr><td colspan="5" class="empty-state">Memuat...</td></tr></tbody></table></div>
+    </div>
+    <div class="card" id="setAkunWrap" style="display:none;max-width:420px;">
+      <h3 style="font-size:15px;margin-bottom:10px;">Ganti Password</h3>
+      <div class="field"><label>Password Lama</label><input type="password" id="pwOld" autocomplete="current-password"></div>
+      <div class="field"><label>Password Baru</label><input type="password" id="pwNew" autocomplete="new-password"></div>
+      <div class="field"><label>Ulangi Password Baru</label><input type="password" id="pwNewConfirm" autocomplete="new-password"></div>
+      <div class="err-msg" id="pwErr"></div>
+      <button class="btn btn-primary" id="btnChangePassword">Simpan Password Baru</button>
+      <p style="font-size:12px;color:var(--outline);margin-top:10px;">Setelah berhasil, Anda akan diminta masuk kembali.</p>
     </div>
     <div class="card" id="setMigrasiWrap" style="display:none;">
       <p style="font-size:13px;color:var(--on-surface-variant);margin-bottom:10px;">
@@ -736,8 +745,29 @@ registerPage('pengaturan', {
       btn.classList.add('active');
       el.querySelector('#setThresholdWrap').style.display = btn.dataset.tab === 'threshold' ? '' : 'none';
       el.querySelector('#setUsersWrap').style.display = btn.dataset.tab === 'users' ? '' : 'none';
+      el.querySelector('#setAkunWrap').style.display = btn.dataset.tab === 'akun' ? '' : 'none';
       el.querySelector('#setMigrasiWrap').style.display = btn.dataset.tab === 'migrasi' ? '' : 'none';
       if (btn.dataset.tab === 'users') loadUsers(false);
+    });
+    el.querySelector('#btnChangePassword').addEventListener('click', async () => {
+      const errEl = el.querySelector('#pwErr');
+      errEl.textContent = '';
+      const oldPassword = el.querySelector('#pwOld').value;
+      const newPassword = el.querySelector('#pwNew').value;
+      const confirmPassword = el.querySelector('#pwNewConfirm').value;
+      if (!oldPassword || !newPassword) { errEl.textContent = 'Password lama dan baru wajib diisi.'; return; }
+      if (newPassword.length < 6) { errEl.textContent = 'Password baru minimal 6 karakter.'; return; }
+      if (newPassword !== confirmPassword) { errEl.textContent = 'Konfirmasi password baru tidak cocok.'; return; }
+      const btn = el.querySelector('#btnChangePassword');
+      btn.disabled = true; btn.textContent = 'Menyimpan...';
+      const res = await api('changePassword', { oldPassword, newPassword });
+      btn.disabled = false; btn.textContent = 'Simpan Password Baru';
+      if (res.success) {
+        showToast('Berhasil', 'Password diganti. Silakan masuk kembali.', 'ok');
+        setTimeout(() => doLogout(), 1200);
+      } else {
+        errEl.textContent = res.message || 'Gagal mengganti password.';
+      }
     });
     el.querySelector('#btnMigDryRun').addEventListener('click', () => runMigrationV1(el, true));
     el.querySelector('#btnMigRun').addEventListener('click', () => {
