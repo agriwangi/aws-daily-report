@@ -31,7 +31,7 @@ function route() {
   const def = Pages[name] || Pages['dashboard'];
   const realName = Pages[name] ? name : 'dashboard';
 
-  if (def.roles && AppState.user && def.roles.indexOf(AppState.user.role) === -1) {
+  if (def.roles && AppState.user && def.roles.indexOf(AppState.user.Role) === -1) {
     showToast('Akses ditolak', 'Anda tidak memiliki izin ke halaman ini.', 'err');
     go('dashboard');
     return;
@@ -88,9 +88,9 @@ function showAppShell() {
 function renderSidebarUser() {
   const u = AppState.user;
   if (!u) return;
-  document.getElementById('sbUserName').textContent = u.nama || u.username;
-  document.getElementById('sbUserRole').textContent = u.role;
-  document.getElementById('sbUserAvatar').textContent = (u.nama || u.username || '?').charAt(0).toUpperCase();
+  document.getElementById('sbUserName').textContent = u.NamaLengkap || u.Username;
+  document.getElementById('sbUserRole').textContent = u.Role;
+  document.getElementById('sbUserAvatar').textContent = (u.NamaLengkap || u.Username || '?').charAt(0).toUpperCase();
 }
 
 const MENU_ROLE_MAP = {
@@ -105,7 +105,7 @@ const MENU_ROLE_MAP = {
 };
 
 function applyRoleVisibility() {
-  const role = AppState.user ? AppState.user.role : null;
+  const role = AppState.user ? AppState.user.Role : null;
   document.querySelectorAll('[data-nav-page]').forEach(el => {
     const page = el.dataset.navPage;
     const allowed = MENU_ROLE_MAP[page];
@@ -159,7 +159,7 @@ function doLogout() {
 function prefetchIdle() {
   const run = () => {
     const calls = ['getThresholds'];
-    if (AppState.user && (AppState.user.role === 'Superadmin' || AppState.user.role === 'Manager')) calls.push('getUsers');
+    if (AppState.user && (AppState.user.Role === 'Superadmin' || AppState.user.Role === 'Manager')) calls.push('getUsers');
     api('batch', { calls: calls.map(a => ({ action: a })) }).then(res => {
       if (res.success) {
         Object.keys(res.data).forEach(a => {
