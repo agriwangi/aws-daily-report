@@ -16,6 +16,7 @@
 </head>
 <body>
 <a class="skip" href="#isi">Lewati ke konten</a>
+<div id="boot" style="font-family:Inter,Arial,sans-serif;padding:32px;color:#166534">Memuat aplikasi…</div>
 <div id="land" class="hide"></div>
 <div id="login" class="hide"></div>
 <div id="app" class="hide"></div>
@@ -23,6 +24,7 @@
 <div id="toasts" role="status" aria-live="polite"></div>
 <noscript><p style="padding:24px;font-family:sans-serif">Aplikasi ini memerlukan JavaScript. Aktifkan JavaScript pada peramban Anda.</p></noscript>
 
+<script>window.addEventListener("error",function(e){var b=document.getElementById("boot");if(b){var f=(e.filename||"").split("/").slice(-2).join("/");b.style.color="#B91C1C";b.innerHTML="Aplikasi gagal dimuat.<br><small>"+String(e.message||"Berkas gagal dimuat").replace(/</g,"&lt;")+" "+f+"</small>"}},true);</script>
 <!-- pustaka (disalin lokal agar tidak bergantung CDN) -->
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="vendor/echarts.min.js"></script>

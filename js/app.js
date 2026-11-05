@@ -147,6 +147,7 @@
   var terakhir = '';
   function rute(paksa) {
     var h = (w.location.hash || '#/').replace(/^#\/?/, ''), id = h.split('?')[0];
+    var bt = document.getElementById('boot'); if (bt) bt.remove();
     var login = !!APP.S.me, kunci = id + '|' + (login ? 1 : 0);
     if (paksa !== true && kunci === terakhir) return; terakhir = kunci;
     ['land', 'login', 'app'].forEach(function (x) { $('#' + x).classList.add('hide'); });
@@ -179,10 +180,9 @@
     w.addEventListener('resize', U.debounce(function () { U.$$('.chart').forEach(function (c) { var i = w.echarts && echarts.getInstanceByDom(c); if (i) i.resize(); }); }, 200));
     if (w.matchMedia) w.matchMedia('(prefers-color-scheme: dark)').addEventListener && w.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (U.baca('mode', '') === 'sistem') { APP.terapkanTema(); CH.gambarUlang(); } });
     if (!API.siapUrl()) { rute(true); return; }
-    API.d('app.boot', {}, { diam: true }).then(function (b) { APP.S.boot = b; APP.terapkanTema(); }).catch(function () {}).then(function () {
-      if (!API.token) return rute(true);
-      API.d('auth.me', {}, { diam: true }).then(function (d) { APP.S.me = d.me; APP.S.boot = d.boot; mulaiApp(); }).catch(function () { API.simpanSesi(''); rute(true); });
-    });
+    if (!API.token) rute(true);   /* tanpa sesi: tampilkan landing/login SEGERA, jangan menunggu server */
+    API.d('app.boot', {}, { diam: true, timeout: 25000 }).then(function (b) { APP.S.boot = b; APP.terapkanTema(); }).catch(function () {});
+    if (API.token) API.d('auth.me', {}, { diam: true, timeout: 30000 }).then(function (d) { APP.S.me = d.me; APP.S.boot = d.boot; mulaiApp(); }).catch(function () { API.simpanSesi(''); rute(true); });
   }
   w.APP = APP; document.addEventListener('DOMContentLoaded', init);
 })(window);
