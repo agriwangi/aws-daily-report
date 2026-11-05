@@ -135,11 +135,13 @@
   }
   APP.keluar = function (diam) { API.call('auth.keluar', {}, { diam: true }).catch(function () {}); API.simpanSesi(''); APP.S = { me: null, boot: APP.S.boot, status: null, rep: null, repKey: '', per: null, filter: {} }; CH.bersih(); $('#app').classList.add('hide'); $('#app').innerHTML = ''; w.location.hash = '#/masuk'; rute(true); if (!diam) U.toast('Anda telah keluar.'); };
   APP.ubahSandi = function (paksa) {
+    if (document.querySelector('#fSandi')) return;   /* jangan buka dua jendela sekaligus */
     var m = U.modal('<h2>' + (paksa ? 'Ganti kata sandi sementara' : 'Ubah kata sandi') + '</h2>' + (paksa ? '<p class="muted">Demi keamanan, ganti kata sandi sementara dari Superadmin sebelum melanjutkan.</p>' : '') + '<form id="fSandi"><div class="field"><label>Kata sandi saat ini</label><input type="password" id="sLama" autocomplete="current-password" required></div><div class="field"><label>Kata sandi baru</label><input type="password" id="sBaru" autocomplete="new-password" required><div class="hint">Minimal 8 karakter, mengandung huruf dan angka.</div></div><div class="field"><label>Ulangi kata sandi baru</label><input type="password" id="sUlang" autocomplete="new-password" required></div><div class="err" id="sErr" style="color:var(--bad);min-height:18px"></div><div class="acts">' + (paksa ? '' : '<button type="button" class="btn ghost" data-tutup>Batal</button>') + '<button class="btn" type="submit">Simpan</button></div></form>', { kunci: !!paksa });
     $('#fSandi', m.el).addEventListener('submit', function (e) {
       e.preventDefault(); var lama = $('#sLama').value, baru = $('#sBaru').value, ul = $('#sUlang').value, er = $('#sErr');
       if (baru !== ul) { er.textContent = 'Pengulangan kata sandi tidak sama.'; return; } if (baru.length < 8 || !/[A-Za-z]/.test(baru) || !/\d/.test(baru)) { er.textContent = 'Minimal 8 karakter dengan huruf dan angka.'; return; }
-      API.d('auth.ubahSandi', { lama: lama, baru: baru }).then(function (d) { API.simpanSesi(d.token); APP.S.me = d.me; m.tutup(); U.toast('Kata sandi diganti.', 'ok'); if (paksa) mulaiApp(); }).catch(function (x) { er.textContent = x.message; });
+      var bt = $('#fSandi button[type=submit]', m.el); if (bt.disabled) return; bt.disabled = true; bt.textContent = 'Menyimpan…'; er.style.color = 'var(--muted)'; er.textContent = 'Sedang memproses, mohon tunggu — bisa sampai 15 detik.';
+      API.d('auth.ubahSandi', { lama: lama, baru: baru }).then(function (d) { API.simpanSesi(d.token); APP.S.me = d.me; m.tutup(); U.toast('Kata sandi diganti.', 'ok'); if (paksa) mulaiApp(); }).catch(function (x) { bt.disabled = false; bt.textContent = 'Simpan'; er.style.color = 'var(--bad)'; er.textContent = x.message; });
     });
   };
 
@@ -172,7 +174,10 @@
     APP.muatStatus().catch(function () {}).then(function () { rute(true); if (APP.S.me.paksaGanti) APP.ubahSandi(true); });
   }
   API.onAuthLost = function (e) { if (!APP.S.me) return; if (e && e.code === 'GANTI_SANDI') return; API.simpanSesi(''); APP.S.me = null; CH.bersih(); w.location.hash = '#/masuk'; rute(true); U.toast('Sesi berakhir. Silakan masuk kembali.', 'warn'); };
-  var asliCall = API.call; API.call = function (a, d, o) { return asliCall(a, d, o).catch(function (e) { if (e && e.code === 'GANTI_SANDI' && APP.S.me && !document.querySelector('#fSandi')) APP.ubahSandi(true); throw e; }); };
+  var tunda = 0, tmrBar = null, bar = null;
+  function barNyala(on) { if (on) { if (!bar) { bar = document.createElement('div'); bar.id = 'lodbar'; bar.setAttribute('aria-hidden', 'true'); document.body.appendChild(bar); } } else if (bar) { bar.remove(); bar = null; } }
+  function barSelesai() { tunda = Math.max(0, tunda - 1); if (!tunda) { clearTimeout(tmrBar); tmrBar = null; barNyala(false); } }
+  var asliCall = API.call; API.call = function (a, d, o) { tunda++; if (!tmrBar) tmrBar = setTimeout(function () { if (tunda) barNyala(true); }, 400); return asliCall(a, d, o).then(function (r) { barSelesai(); return r; }, function (e) { barSelesai(); throw e; }).catch(function (e) { if (e && e.code === 'GANTI_SANDI' && APP.S.me && !document.querySelector('#fSandi')) APP.ubahSandi(true); throw e; }); };
 
   function init() {
     API.muatSesi(); APP.terapkanTema();
