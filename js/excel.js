@@ -1,8 +1,8 @@
-/* AWS Daily Report v1.0.0 — baca Excel di browser, dry-run, dan unggah bertahap ke backend */
+/* AWS Daily Report v1.0.4 — baca Excel di browser, dry-run, dan unggah bertahap ke backend */
 (function (w) {
   'use strict';
   var XL = {};
-  XL.bacaBerkas = function (file) {
+  XL.bacaBerkas = function (file, tahun) {
     return new Promise(function (res, rej) {
       if (!w.XLSX) return rej(new Error('Pustaka Excel belum termuat. Segarkan halaman.'));
       if (!/\.(xlsx|xlsm|xls)$/i.test(file.name)) return rej(new Error('Berkas harus berformat Excel (.xlsx / .xlsm / .xls).'));
@@ -16,7 +16,7 @@
             var sheets = wb.SheetNames.map(function (n, i) {
               return { name: n, hidden: !!(meta[i] && meta[i].Hidden), grid: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) };
             });
-            var plan = AWSX.planWorkbook(sheets, new Date().getFullYear());
+            var plan = AWSX.planWorkbook(sheets, +tahun || new Date().getFullYear());
             res({ nama: file.name, plan: plan });
           } catch (e) { rej(new Error('Gagal membaca isi Excel: ' + e.message)); }
         }, 30);
@@ -29,6 +29,18 @@
     var items = [], lewat = [];
     hasil.forEach(function (h) { h.plan.items.forEach(function (it) { it.berkas = h.nama; items.push(it); }); (h.plan.dilewati || []).forEach(function (d) { lewat.push({ berkas: h.nama, sheet: d.name || d.sheet || d, alasan: d.alasan || d.reason || '' }); }); });
     return { items: items, dilewati: lewat };
+  };
+  /* saring item sesuai periode pilihan pengguna: tahun wajib, bulan opsional ('' = semua bulan).
+     Mengembalikan {items, dilewati, peringatan} — item di luar periode TIDAK pernah diunggah. */
+  XL.saringPeriode = function (items, tahun, bulan) {
+    var ok = [], lewat = [], warn = [], th = String(tahun), bln = bulan ? th + '-' + ('0' + bulan).slice(-2) : '';
+    items.forEach(function (it) {
+      var p = String(it.periode || ''), cocok = p.length > 4 ? (bln ? p === bln : p.slice(0, 4) === th) : p === th;
+      if (!cocok) { lewat.push({ berkas: it.berkas, sheet: it.label, alasan: 'periode ' + p + ' bukan yang dipilih (' + (bln || th) + ')' }); return; }
+      if (p.length > 4 && it.tglMin && (it.tglMin.slice(0, 7) !== p || it.tglMaks.slice(0, 7) !== p)) warn.push(it.dataset + ' ' + p + ' (' + it.label + '): ada tanggal di luar bulan ' + p + ' — ' + it.tglMin + ' s/d ' + it.tglMaks);
+      ok.push(it);
+    });
+    return { items: ok, dilewati: lewat, peringatan: warn };
   };
   XL.dryrun = function (items) {
     return API.d('unggah.dryrun', { items: items.map(function (i) { return { dataset: i.dataset, periode: i.periode, label: i.label, sidik: i.sidik, hashHarian: i.hashHarian, labels: i.labels }; }) }).then(function (d) { return d.items; });
