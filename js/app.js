@@ -1,897 +1,188 @@
-// ============================================================
-// AWS DAILY REPORT — MANDIRI
-// js/app.js — SPA Router (hash) + Logika Halaman
-// Action yang dipanggil harus PERSIS sama dengan ROUTES di Kode.gs:
-// login, bootstrap, batch, dashboardData, absensiReport, produksiReport,
-// saveAbsensi, saveProduksi, importExcel,
-// getIssues, getIssueDetail, updateIssue, addIssueComment, createManualIssue, runIssueScan,
-// generateDailyReportPDF, sendDailySummaryEmail,
-// getThresholds, saveThresholds, getUsers, addUser, updateUserStatus, changePassword
-// ============================================================
-
-const Pages = {};
-let charts = {};
-
-function registerPage(name, def) { Pages[name] = Object.assign({ roles: null }, def); }
-
-function go(name, param) {
-  const h = '#/' + name + (param ? '/' + encodeURIComponent(param) : '');
-  if (location.hash === h) route(); else location.hash = h;
-}
-
-function currentPageName() {
-  return (location.hash.replace(/^#\/?/, '').split('/')[0]) || 'dashboard';
-}
-
-function route() {
-  if (!AppState.token) { showAuthScreen(); return; }
-  const parts = location.hash.replace(/^#\/?/, '').split('/');
-  const name = parts[0] || 'dashboard';
-  const param = parts[1] ? decodeURIComponent(parts[1]) : null;
-  const def = Pages[name] || Pages['dashboard'];
-  const realName = Pages[name] ? name : 'dashboard';
-
-  if (def.roles && AppState.user && def.roles.indexOf(AppState.user.Role) === -1) {
-    showToast('Akses ditolak', 'Anda tidak memiliki izin ke halaman ini.', 'err');
-    go('dashboard');
-    return;
-  }
-
-  let el = document.querySelector('.page[data-page="' + realName + '"]');
-  const main = document.getElementById('mainContent');
-  if (!el) {
-    el = document.createElement('section');
-    el.className = 'page';
-    el.dataset.page = realName;
-    el.innerHTML = def.template();
-    main.appendChild(el);
-    def.init && def.init(el);
-  }
-  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p === el));
-  setActiveNav(realName);
-  def.show && def.show(el, param);
-}
-
-function setActiveNav(name) {
-  document.querySelectorAll('.sidebar-nav .nav-item, .bottom-nav .bn-item').forEach(n => {
-    n.classList.toggle('active', n.dataset.page === name);
-  });
-  const crumb = document.getElementById('breadcrumbTitle');
-  const titles = {
-    dashboard: 'Dashboard', input: 'Input Data', upload: 'Unggah Excel',
-    absensi: 'Laporan Absensi', produksi: 'Laporan Produksi',
-    isu: 'Isu & Rekomendasi', laporan: 'Laporan & Ekspor', pengaturan: 'Pengaturan'
-  };
-  if (crumb) crumb.textContent = titles[name] || name;
-}
-
-window.addEventListener('hashchange', route);
-
-// ============================================================
-// AUTH
-// ============================================================
-
-function showAuthScreen() {
-  document.getElementById('authScreen').style.display = 'flex';
-  document.getElementById('appShell').classList.remove('active');
-}
-
-function showAppShell() {
-  document.getElementById('authScreen').style.display = 'none';
-  document.getElementById('appShell').classList.add('active');
-  renderSidebarUser();
-  applyRoleVisibility();
-  route();
-  prefetchIdle();
-}
-
-function renderSidebarUser() {
-  const u = AppState.user;
-  if (!u) return;
-  document.getElementById('sbUserName').textContent = u.NamaLengkap || u.Username;
-  document.getElementById('sbUserRole').textContent = u.Role;
-  document.getElementById('sbUserAvatar').textContent = (u.NamaLengkap || u.Username || '?').charAt(0).toUpperCase();
-}
-
-const MENU_ROLE_MAP = {
-  dashboard: null,
-  input: ['Superadmin', 'Manager', 'SPV', 'Admin', 'Askep', 'Asisten'],
-  upload: ['Superadmin', 'Manager', 'Admin'],
-  absensi: null,
-  produksi: null,
-  isu: null,
-  laporan: ['Superadmin', 'Manager', 'SPV', 'Admin'],
-  pengaturan: ['Superadmin', 'Manager']
-};
-
-function applyRoleVisibility() {
-  const role = AppState.user ? AppState.user.Role : null;
-  document.querySelectorAll('[data-nav-page]').forEach(el => {
-    const page = el.dataset.navPage;
-    const allowed = MENU_ROLE_MAP[page];
-    el.style.display = (!allowed || allowed.indexOf(role) > -1) ? '' : 'none';
-  });
-}
-
-async function doLogin(username, password) {
-  const btn = document.getElementById('btnLogin');
-  const errEl = document.getElementById('loginErr');
-  errEl.textContent = '';
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner spinner-sm"></span> Memeriksa...';
-  try {
-    const res = await api('login', { username, password });
-    if (res.success) {
-      AppState.token = res.data.token;
-      AppState.user = res.data.user;
-      applyBootstrap(res.data.boot);
-      Store.set('session', { token: AppState.token, user: AppState.user, t: Date.now() });
-      showAppShell();
-    } else {
-      errEl.textContent = res.message || 'Username atau password salah.';
-    }
-  } catch (e) {
-    errEl.textContent = 'Gagal terhubung ke server. Coba lagi.';
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = 'Masuk';
-  }
-}
-
-function applyBootstrap(boot) {
-  if (!boot) return;
-  AppState.thresholds = boot.thresholds;
-  AppState.roles = boot.roles;
-  AppState.divisiAfdeling = boot.divisiAfdeling;
-  if (boot.dashboard) {
-    Store.set(userKey('dashboardData:{}'), { t: Date.now(), h: hashStr(JSON.stringify(boot.dashboard)), data: boot.dashboard });
-  }
-}
-
-function doLogout() {
-  AppState.token = null;
-  AppState.user = null;
-  Store.del('session');
-  location.hash = '';
-  showAuthScreen();
-}
-
-function prefetchIdle() {
-  const run = () => {
-    const calls = ['getThresholds'];
-    if (AppState.user && (AppState.user.Role === 'Superadmin' || AppState.user.Role === 'Manager')) calls.push('getUsers');
-    api('batch', { calls: calls.map(a => ({ action: a })) }).then(res => {
-      if (res.success) {
-        Object.keys(res.data).forEach(a => {
-          const r = res.data[a];
-          if (r.success) Store.set(userKey('a:' + a), { t: Date.now(), h: hashStr(JSON.stringify(r.data)), data: r.data });
-        });
-      }
-    });
-  };
-  (window.requestIdleCallback || setTimeout)(run, 1200);
-}
-
-// ============================================================
-// RESTORE SESSION SAAT APP DIBUKA
-// ============================================================
-
-async function tryRestoreSession() {
-  const sess = Store.get('session', null);
-  if (!sess || !sess.token) { return; } // biarkan landing/auth screen seperti disiapkan index.html
-  AppState.token = sess.token;
-  AppState.user = sess.user;
-  showAppShell();
-  // Validasi token di latar belakang — kalau sudah tidak valid, apiOnce akan memicu handleSessionExpired
-  const res = await api('bootstrap', {});
-  if (res.success) applyBootstrap(res.data);
-}
-
-// ============================================================
-// HALAMAN: DASHBOARD
-// ============================================================
-registerPage('dashboard', {
-  template: () => `
-    <div class="page-head">
-      <div><h1>Dashboard Operasional</h1><p>Ringkasan kondisi kebun hari ini — absensi, produksi, dan isu aktif.</p></div>
-      <div class="actions">
-        <select id="dashFilterRange" class="field" style="height:36px;width:160px;">
-          <option value="7">7 hari terakhir</option>
-          <option value="30" selected>30 hari terakhir</option>
-          <option value="90">90 hari terakhir</option>
-        </select>
-        <button class="btn btn-outline btn-sm" id="btnRefreshDash"><span class="material-symbols-outlined" style="font-size:16px;">refresh</span> Muat Ulang</button>
-      </div>
-    </div>
-    <div class="grid grid-4" id="dashKpiRow">
-      <div class="card kpi-card"><div class="lbl">Kehadiran</div><div class="val">—</div></div>
-      <div class="card kpi-card"><div class="lbl">Mangkir</div><div class="val">—</div></div>
-      <div class="card kpi-card"><div class="lbl">Capaian Produksi</div><div class="val">—</div></div>
-      <div class="card kpi-card"><div class="lbl">Grade 3</div><div class="val">—</div></div>
-    </div>
-    <div class="grid grid-2" style="margin-top:14px;">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <h3 style="font-size:15px;">Tren Produksi vs Budget</h3>
-          <div class="chart-switch" data-chart="trend"><button data-type="bar" class="active">Bar</button><button data-type="line">Line</button></div>
-        </div>
-        <canvas id="chartTrend" height="220"></canvas>
-      </div>
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <h3 style="font-size:15px;">Komposisi Grade</h3>
-          <div class="chart-switch" data-chart="grade"><button data-type="doughnut" class="active">Doughnut</button><button data-type="pie">Pie</button></div>
-        </div>
-        <canvas id="chartGrade" height="220"></canvas>
-      </div>
-    </div>
-    <div class="card" style="margin-top:14px;">
-      <h3 style="font-size:15px;margin-bottom:10px;">Insight Otomatis</h3>
-      <ul id="dashInsights" style="padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--on-surface-variant);"></ul>
-    </div>
-  `,
-  init(el) {
-    el.querySelector('#btnRefreshDash').addEventListener('click', () => loadDashboard(true));
-    el.querySelector('#dashFilterRange').addEventListener('change', () => loadDashboard(true));
-    el.querySelectorAll('.chart-switch').forEach(sw => {
-      sw.addEventListener('click', e => {
-        const btn = e.target.closest('button'); if (!btn) return;
-        sw.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        renderDashboardCharts(AppState._lastDashboard, sw.dataset.chart, btn.dataset.type);
-      });
-    });
-  },
-  show() { loadDashboard(false); }
-});
-
-async function loadDashboard(force) {
-  const range = document.getElementById('dashFilterRange').value;
-  await swr('dashboardData:' + range, 'dashboardData', { rangeDays: Number(range) }, (data) => {
-    AppState._lastDashboard = data;
-    renderDashboardKpi(data);
-    renderDashboardCharts(data, 'trend', 'bar');
-    renderDashboardCharts(data, 'grade', 'doughnut');
-    renderDashboardInsights(data);
-  }, { force });
-}
-
-function renderDashboardKpi(d) {
-  if (!d || !d.kpi) return;
-  const row = document.getElementById('dashKpiRow');
-  const items = [
-    { lbl: 'Kehadiran', val: fmtPct(d.kpi.pctHadir), delta: d.kpi.pctMangkir > (AppState.thresholds ? AppState.thresholds.maxMangkirPct : 10) ? 'down' : 'up' },
-    { lbl: 'Mangkir', val: fmtPct(d.kpi.pctMangkir), delta: d.kpi.pctMangkir > (AppState.thresholds ? AppState.thresholds.maxMangkirPct : 10) ? 'down' : 'up' },
-    { lbl: 'Capaian Produksi', val: fmtPct(d.kpi.pctCapaian), delta: d.kpi.pctCapaian < (AppState.thresholds ? AppState.thresholds.minProduksiBudgetPct : 90) ? 'down' : 'up' },
-    { lbl: 'Grade 3', val: fmtPct(d.kpi.pctG3), delta: d.kpi.pctG3 > (AppState.thresholds ? AppState.thresholds.maxG3Pct : 10) ? 'down' : 'up' }
+/* AWS Daily Report v1.0.0 — kerangka aplikasi: halaman awal, masuk, menu, tema, periode, rute */
+(function (w) {
+  'use strict';
+  var APP = { S: { me: null, boot: null, status: null, rep: null, repKey: '', per: null, filter: {} }, V: {} };
+  var SEMUA = ['superadmin', 'admin', 'spv', 'manager', 'askep', 'asisten'], ADM = ['superadmin', 'admin'], PEN = ['superadmin', 'admin', 'spv', 'manager'];
+  var MENU = [
+    { id: 'dashboard', l: 'Dashboard', ik: 'dash', r: SEMUA }, { id: 'absensi', l: 'Absensi', ik: 'users', r: SEMUA }, { id: 'produksi', l: 'Produksi', ik: 'leaf', r: SEMUA },
+    { id: 'rekap', l: 'Rekap', ik: 'table', r: SEMUA }, { id: 'isu', l: 'Isu & Rekomendasi', ik: 'alert', r: SEMUA }, { id: 'unggah', l: 'Unggah Excel', ik: 'upload', r: ADM },
+    { id: 'manual', l: 'Input Manual', ik: 'edit', r: ADM }, { id: 'ekspor', l: 'Ekspor & Laporan', ik: 'download', r: SEMUA }, { id: 'riwayat', l: 'Riwayat Perubahan', ik: 'clock', r: PEN },
+    { id: 'pengaturan', l: 'Pengaturan', ik: 'gear', r: SEMUA }, { id: 'pengguna', l: 'Kelola Pengguna', ik: 'shield', r: ['superadmin'] }
   ];
-  row.innerHTML = items.map(it => `
-    <div class="card kpi-card">
-      <div class="lbl">${escapeHtml(it.lbl)}</div>
-      <div class="val">${it.val}</div>
-      <div class="delta ${it.delta}">${it.delta === 'up' ? '▲ Sesuai target' : '▼ Perlu perhatian'}</div>
-    </div>
-  `).join('');
-}
+  APP.MENU = MENU;
+  APP.ROLE_NAMA = { superadmin: 'Superadmin', admin: 'Admin', spv: 'SPV', manager: 'Manager', askep: 'Askep', asisten: 'Asisten' };
+  APP.TEMA = [['tea-green', 'Tea Green', '#166534'], ['ocean-blue', 'Ocean Blue', '#1D4ED8'], ['indigo', 'Indigo', '#4338CA'], ['teal', 'Teal', '#0F766E'], ['harvest-amber', 'Harvest Amber', '#B45309'], ['slate', 'Slate', '#334155']];
+  var $ = U.$;
+  APP.boleh = function (idMenu) { var m = MENU.filter(function (x) { return x.id === idMenu; })[0]; return !!(m && APP.S.me && m.r.indexOf(APP.S.me.role) >= 0); };
+  APP.role = function () { return APP.S.me ? APP.S.me.role : ''; };
+  APP.adm = function () { return ADM.indexOf(APP.role()) >= 0; };
+  APP.penilai = function () { return PEN.indexOf(APP.role()) >= 0; };
 
-function renderDashboardCharts(d, which, type) {
-  if (!d) return;
-  if (which === 'trend' && d.trend) {
-    const ctx = document.getElementById('chartTrend');
-    if (!ctx) return;
-    if (charts.trend) charts.trend.destroy();
-    charts.trend = new Chart(ctx, {
-      type: type,
-      data: {
-        labels: d.trend.labels,
-        datasets: [
-          { label: 'Realisasi', data: d.trend.realisasi, backgroundColor: '#006c48', borderColor: '#006c48' },
-          { label: 'Budget', data: d.trend.budget, backgroundColor: '#92f7c3', borderColor: '#1b4332' }
-        ]
-      },
-      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-    });
-  }
-  if (which === 'grade' && d.gradeComposition) {
-    const ctx = document.getElementById('chartGrade');
-    if (!ctx) return;
-    if (charts.grade) charts.grade.destroy();
-    charts.grade = new Chart(ctx, {
-      type: type,
-      data: {
-        labels: d.gradeComposition.labels,
-        datasets: [{ data: d.gradeComposition.values, backgroundColor: ['#107C41', '#995D00', '#ba1a1a', '#717973'] }]
-      },
-      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-    });
-  }
-}
-
-function renderDashboardInsights(d) {
-  const ul = document.getElementById('dashInsights');
-  if (!ul) return;
-  const list = (d && d.insights) || [];
-  ul.innerHTML = list.length ? list.map(t => `<li>${escapeHtml(t)}</li>`).join('') : '<li>Belum ada insight untuk periode ini.</li>';
-}
-
-function fmtPct(v) { return (v == null ? '—' : Number(v).toFixed(1) + '%'); }
-
-// ============================================================
-// HALAMAN: INPUT DATA (Absensi & Produksi manual)
-// ============================================================
-registerPage('input', {
-  roles: ['Superadmin', 'Manager', 'SPV', 'Admin', 'Askep', 'Asisten'],
-  template: () => `
-    <div class="page-head"><div><h1>Input Data Harian</h1><p>Input manual data absensi dan produksi per divisi/afdeling.</p></div></div>
-    <div class="tabs" id="inputTabs">
-      <button class="tab-btn active" data-tab="absensi">Absensi</button>
-      <button class="tab-btn" data-tab="produksi">Produksi</button>
-    </div>
-    <div class="card" id="inputAbsensiForm">
-      <div class="form-row">
-        <div class="field"><label>Tanggal</label><input type="date" id="absTanggal"></div>
-        <div class="field"><label>Divisi</label><input type="text" id="absDivisi" placeholder="Divisi I"></div>
-        <div class="field"><label>Afdeling</label><input type="text" id="absAfdeling" placeholder="Afdeling A"></div>
-        <div class="field"><label>Jumlah Karyawan</label><input type="number" id="absJumlah" min="0"></div>
-        <div class="field"><label>Hadir</label><input type="number" id="absHadir" min="0"></div>
-        <div class="field"><label>Mangkir</label><input type="number" id="absMangkir" min="0"></div>
-        <div class="field"><label>Izin</label><input type="number" id="absIzin" min="0"></div>
-        <div class="field"><label>Sakit</label><input type="number" id="absSakit" min="0"></div>
-        <div class="field"><label>Catatan</label><input type="text" id="absCatatan"></div>
-      </div>
-      <button class="btn btn-primary" id="btnSaveAbsensi">Simpan Absensi</button>
-    </div>
-    <div class="card" id="inputProduksiForm" style="display:none;">
-      <div class="form-row">
-        <div class="field"><label>Tanggal</label><input type="date" id="prdTanggal"></div>
-        <div class="field"><label>Divisi</label><input type="text" id="prdDivisi"></div>
-        <div class="field"><label>Afdeling</label><input type="text" id="prdAfdeling"></div>
-        <div class="field"><label>Budget (kg)</label><input type="number" id="prdBudget" min="0"></div>
-        <div class="field"><label>Realisasi (kg)</label><input type="number" id="prdRealisasi" min="0"></div>
-        <div class="field"><label>Grade 1 (kg)</label><input type="number" id="prdG1" min="0"></div>
-        <div class="field"><label>Grade 2 (kg)</label><input type="number" id="prdG2" min="0"></div>
-        <div class="field"><label>Grade 3 (kg)</label><input type="number" id="prdG3" min="0"></div>
-        <div class="field"><label>Jumlah Pemanen</label><input type="number" id="prdPemanen" min="0"></div>
-      </div>
-      <button class="btn btn-primary" id="btnSaveProduksi">Simpan Produksi</button>
-    </div>
-  `,
-  init(el) {
-    el.querySelector('#inputTabs').addEventListener('click', e => {
-      const btn = e.target.closest('.tab-btn'); if (!btn) return;
-      el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      el.querySelector('#inputAbsensiForm').style.display = btn.dataset.tab === 'absensi' ? '' : 'none';
-      el.querySelector('#inputProduksiForm').style.display = btn.dataset.tab === 'produksi' ? '' : 'none';
-    });
-    const today = new Date().toISOString().slice(0, 10);
-    el.querySelector('#absTanggal').value = today;
-    el.querySelector('#prdTanggal').value = today;
-
-    el.querySelector('#btnSaveAbsensi').addEventListener('click', async (e) => {
-      const btn = e.target; btn.disabled = true; btn.textContent = 'Menyimpan...';
-      const payload = {
-        tanggal: el.querySelector('#absTanggal').value,
-        divisi: el.querySelector('#absDivisi').value,
-        afdeling: el.querySelector('#absAfdeling').value,
-        jumlahKaryawan: Number(el.querySelector('#absJumlah').value || 0),
-        hadir: Number(el.querySelector('#absHadir').value || 0),
-        mangkir: Number(el.querySelector('#absMangkir').value || 0),
-        izin: Number(el.querySelector('#absIzin').value || 0),
-        sakit: Number(el.querySelector('#absSakit').value || 0),
-        catatan: el.querySelector('#absCatatan').value
-      };
-      const res = await api('saveAbsensi', payload);
-      if (res.success) { showToast('Berhasil', 'Data absensi tersimpan.', 'ok'); el.querySelector('#absCatatan').value = ''; }
-      else showToast('Gagal', res.message || 'Terjadi kesalahan.', 'err');
-      btn.disabled = false; btn.textContent = 'Simpan Absensi';
-    });
-
-    el.querySelector('#btnSaveProduksi').addEventListener('click', async (e) => {
-      const btn = e.target; btn.disabled = true; btn.textContent = 'Menyimpan...';
-      const payload = {
-        tanggal: el.querySelector('#prdTanggal').value,
-        divisi: el.querySelector('#prdDivisi').value,
-        afdeling: el.querySelector('#prdAfdeling').value,
-        budget: Number(el.querySelector('#prdBudget').value || 0),
-        realisasi: Number(el.querySelector('#prdRealisasi').value || 0),
-        grade1: Number(el.querySelector('#prdG1').value || 0),
-        grade2: Number(el.querySelector('#prdG2').value || 0),
-        grade3: Number(el.querySelector('#prdG3').value || 0),
-        jumlahPemanen: Number(el.querySelector('#prdPemanen').value || 0)
-      };
-      const res = await api('saveProduksi', payload);
-      if (res.success) showToast('Berhasil', 'Data produksi tersimpan.', 'ok');
-      else showToast('Gagal', res.message || 'Terjadi kesalahan.', 'err');
-      btn.disabled = false; btn.textContent = 'Simpan Produksi';
-    });
-  }
-});
-
-// ============================================================
-// HALAMAN: UNGGAH EXCEL (SheetJS, Adaptive Schema Engine)
-// ============================================================
-registerPage('upload', {
-  roles: ['Superadmin', 'Manager', 'Admin'],
-  template: () => `
-    <div class="page-head"><div><h1>Unggah Data Excel</h1><p>Impor data Absensi/Produksi massal dari file Excel. Kolom baru otomatis terdeteksi dan ditambahkan tanpa menghapus data lama.</p></div></div>
-    <div class="card">
-      <div class="field"><label>Target Sheet</label>
-        <select id="uploadTarget"><option value="ABSENSI">Absensi</option><option value="PRODUKSI">Produksi</option></select>
-      </div>
-      <div class="dropzone" id="dropzone" style="margin-top:10px;">
-        <span class="material-symbols-outlined">upload_file</span>
-        <p style="margin:8px 0 0;font-weight:600;">Seret file Excel ke sini, atau klik untuk pilih</p>
-        <p style="font-size:12px;color:var(--outline);">.xlsx atau .xls</p>
-        <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
-      </div>
-      <div id="uploadPreviewWrap" style="margin-top:14px;display:none;">
-        <p style="font-size:13px;color:var(--on-surface-variant);margin-bottom:8px;">Pratinjau (<span id="previewCount">0</span> baris terdeteksi):</p>
-        <div class="table-wrap"><table class="data-table" id="previewTable"><thead></thead><tbody></tbody></table></div>
-        <button class="btn btn-primary" id="btnImport" style="margin-top:12px;">Import ke Database</button>
-      </div>
-    </div>
-  `,
-  init(el) {
-    let parsedHeaders = [], parsedRows = [];
-    const dz = el.querySelector('#dropzone');
-    const fileInput = el.querySelector('#fileInput');
-    dz.addEventListener('click', () => fileInput.click());
-    ['dragover', 'dragleave', 'drop'].forEach(evt => dz.addEventListener(evt, e => e.preventDefault()));
-    dz.addEventListener('dragover', () => dz.classList.add('drag'));
-    dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
-    dz.addEventListener('drop', e => { dz.classList.remove('drag'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
-    fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
-
-    function handleFile(file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const wb = XLSX.read(e.target.result, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-        if (!rows.length) { showToast('Kosong', 'File tidak memiliki data.', 'err'); return; }
-        parsedHeaders = rows[0].map(String);
-        parsedRows = rows.slice(1).filter(r => r.join('') !== '');
-        renderPreview();
-      };
-      reader.readAsArrayBuffer(file);
-    }
-
-    function renderPreview() {
-      el.querySelector('#uploadPreviewWrap').style.display = '';
-      el.querySelector('#previewCount').textContent = parsedRows.length;
-      const thead = el.querySelector('#previewTable thead');
-      const tbody = el.querySelector('#previewTable tbody');
-      thead.innerHTML = '<tr>' + parsedHeaders.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr>';
-      tbody.innerHTML = parsedRows.slice(0, 10).map(r => '<tr>' + r.map(c => '<td>' + escapeHtml(c) + '</td>').join('') + '</tr>').join('');
-    }
-
-    el.querySelector('#btnImport').addEventListener('click', async (e) => {
-      const btn = e.target; btn.disabled = true; btn.textContent = 'Mengimpor...';
-      const res = await api('importExcel', {
-        targetSheet: el.querySelector('#uploadTarget').value,
-        headers: parsedHeaders,
-        dataRows: parsedRows
-      });
-      if (res.success) showToast('Berhasil', (res.data && res.data.imported || parsedRows.length) + ' baris berhasil diimpor.', 'ok');
-      else showToast('Gagal', res.message || 'Terjadi kesalahan.', 'err');
-      btn.disabled = false; btn.textContent = 'Import ke Database';
-    });
-  }
-});
-
-// ============================================================
-// HALAMAN: LAPORAN ABSENSI / PRODUKSI (tabel + filter)
-// ============================================================
-function buildReportPage(key, action, columns) {
-  return {
-    template: () => `
-      <div class="page-head"><div><h1>${key === 'absensi' ? 'Laporan Absensi' : 'Laporan Produksi'}</h1><p>Data historis dengan filter tanggal, divisi, dan afdeling.</p></div></div>
-      <div class="card" style="margin-bottom:14px;">
-        <div class="form-row">
-          <div class="field"><label>Dari Tanggal</label><input type="date" id="${key}FilterStart"></div>
-          <div class="field"><label>Sampai Tanggal</label><input type="date" id="${key}FilterEnd"></div>
-          <div class="field"><label>Divisi</label><input type="text" id="${key}FilterDivisi" placeholder="Semua"></div>
-        </div>
-        <button class="btn btn-outline btn-sm" id="${key}BtnFilter">Terapkan Filter</button>
-      </div>
-      <div class="table-wrap"><table class="data-table" id="${key}Table"><thead><tr>${columns.map(c => '<th>' + c.label + '</th>').join('')}</tr></thead><tbody><tr><td colspan="${columns.length}" class="empty-state">Memuat data...</td></tr></tbody></table></div>
-    `,
-    init(el) {
-      el.querySelector('#' + key + 'BtnFilter').addEventListener('click', () => loadReport(key, action, columns, true));
-    },
-    show() { loadReport(key, action, columns, false); }
+  /* ---------- tema ---------- */
+  APP.terapkanTema = function () {
+    var t = U.baca('tema', '') || (APP.S.boot && APP.S.boot.tema) || 'tea-green', m = U.baca('mode', '') || (APP.S.boot && APP.S.boot.mode) || 'terang';
+    if (m === 'sistem') m = w.matchMedia && w.matchMedia('(prefers-color-scheme: dark)').matches ? 'gelap' : 'terang';
+    document.documentElement.setAttribute('data-theme', t); document.documentElement.setAttribute('data-mode', m);
+    var mt = document.querySelector('meta[name=theme-color]'); if (mt) mt.content = m === 'gelap' ? '#0B1210' : getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#166534';
   };
-}
+  APP.setTema = function (t, m) { if (t) U.simpan('tema', t); if (m) U.simpan('mode', m); APP.terapkanTema(); CH.gambarUlang(); var b = $('#modeBtn'); if (b) b.innerHTML = U.ik(document.documentElement.getAttribute('data-mode') === 'gelap' ? 'sun' : 'moon'); };
 
-async function loadReport(key, action, columns, force) {
-  const start = document.getElementById(key + 'FilterStart').value;
-  const end = document.getElementById(key + 'FilterEnd').value;
-  const divisi = document.getElementById(key + 'FilterDivisi').value;
-  const filter = { tanggalMulai: start, tanggalAkhir: end, divisi };
-  await swr(key + 'Report:' + JSON.stringify(filter), action, filter, (rows) => {
-    renderReportTable(key, rows, columns);
-  }, { force });
-}
+  /* ---------- periode ---------- */
+  APP.hitungRentang = function (mode, a) {
+    var d = U.parse(a), y = d.getFullYear(), mo = d.getMonth();
+    if (mode === 'hari') return { from: a, to: a };
+    if (mode === 'minggu') { var s = (d.getDay() + 6) % 7, f = U.addDays(a, -s); return { from: f, to: U.addDays(f, 6) }; }
+    if (mode === 'bulan') return { from: y + '-' + U.pad(mo + 1) + '-01', to: U.iso(new Date(y, mo + 1, 0)) };
+    if (mode === 'tahun') return { from: y + '-01-01', to: y + '-12-31' };
+    if (mode === 'gaji') { var dd = d.getDate(); var f2 = dd >= 26 ? new Date(y, mo, 26) : new Date(y, mo - 1, 26), t2 = dd >= 26 ? new Date(y, mo + 1, 25) : new Date(y, mo, 25); return { from: U.iso(f2), to: U.iso(t2) }; }
+    return null;
+  };
+  APP.geser = function (mode, a, arah) {
+    var d = U.parse(a);
+    if (mode === 'hari') return U.addDays(a, arah); if (mode === 'minggu') return U.addDays(a, 7 * arah);
+    if (mode === 'bulan') { d.setDate(1); d.setMonth(d.getMonth() + arah); return U.iso(d); }
+    if (mode === 'tahun') { d.setFullYear(d.getFullYear() + arah); return U.iso(d); }
+    if (mode === 'gaji') { var x = d.getDate() >= 26 ? U.parse(U.iso(d)) : d; x.setDate(15); x.setMonth(x.getMonth() + arah); return U.iso(x); }
+    return a;
+  };
+  APP.tglTerakhir = function () { var t = ''; ((APP.S.status && APP.S.status.registri) || []).forEach(function (r) { if ((r.dataset === 'REK' || r.dataset === 'ABS') && String(r.tglMaks) > t) t = String(r.tglMaks); }); var h = APP.S.status && APP.S.status.hari || U.today(); return t && t <= h ? t : (t || h); };
+  APP.periode = function () {
+    if (!APP.S.per) { var simp = U.bacaJson('per', null), a = APP.tglTerakhir(); APP.S.per = simp && simp.mode ? { mode: simp.mode, anchor: simp.mode === 'rentang' ? a : a, from: simp.from, to: simp.to } : { mode: 'bulan', anchor: a }; }
+    var p = APP.S.per; if (p.mode !== 'rentang') { var r = APP.hitungRentang(p.mode, p.anchor); p.from = r.from; p.to = r.to; } return p;
+  };
+  APP.labelPeriode = function (p) { p = p || APP.periode(); return p.from === p.to ? U.tglID(p.from) : U.tglID(p.from, true) + ' – ' + U.tglID(p.to, true); };
+  APP.invalidasi = function () { APP.S.rep = null; APP.S.repKey = ''; };
+  APP.laporan = function (paksa) {
+    var p = APP.periode(), key = [p.from, p.to, JSON.stringify(APP.S.filter)].join('|');
+    if (!paksa && APP.S.rep && APP.S.repKey === key) return Promise.resolve(APP.S.rep);
+    return API.d('laporan.get', { from: p.from, to: p.to, filter: APP.S.filter, orangLimit: 3000 }, { timeout: 180000 }).then(function (r) { APP.S.rep = r; APP.S.repKey = key; return r; });
+  };
+  APP.muatStatus = function () { return API.d('data.status').then(function (s) { APP.S.status = s; return s; }); };
 
-function renderReportTable(key, rows, columns) {
-  const tbody = document.querySelector('#' + key + 'Table tbody');
-  if (!rows || !rows.length) { tbody.innerHTML = '<tr><td colspan="' + columns.length + '" class="empty-state">Tidak ada data untuk filter ini.</td></tr>'; return; }
-  tbody.innerHTML = rows.map(r => '<tr>' + columns.map(c => '<td>' + escapeHtml(r[c.key] != null ? r[c.key] : '-') + '</td>').join('') + '</tr>').join('');
-}
-
-registerPage('absensi', buildReportPage('absensi', 'absensiReport', [
-  { key: 'Tanggal', label: 'Tanggal' }, { key: 'Divisi', label: 'Divisi' }, { key: 'Afdeling', label: 'Afdeling' },
-  { key: 'JumlahKaryawan', label: 'Jumlah' }, { key: 'Hadir', label: 'Hadir' }, { key: 'Mangkir', label: 'Mangkir' },
-  { key: 'Izin', label: 'Izin' }, { key: 'Sakit', label: 'Sakit' }
-]));
-
-registerPage('produksi', buildReportPage('produksi', 'produksiReport', [
-  { key: 'Tanggal', label: 'Tanggal' }, { key: 'Divisi', label: 'Divisi' }, { key: 'Afdeling', label: 'Afdeling' },
-  { key: 'Budget', label: 'Budget (kg)' }, { key: 'Realisasi', label: 'Realisasi (kg)' },
-  { key: 'Grade1', label: 'G1' }, { key: 'Grade2', label: 'G2' }, { key: 'Grade3', label: 'G3' }
-]));
-
-// ============================================================
-// HALAMAN: ISU & REKOMENDASI (Kanban)
-// ============================================================
-registerPage('isu', {
-  template: () => `
-    <div class="page-head">
-      <div><h1>Isu & Rekomendasi</h1><p>Tiket otomatis dari Issue Detection Engine berdasarkan ambang batas threshold.</p></div>
-      <div class="actions"><button class="btn btn-outline btn-sm" id="btnScanIsu">Jalankan Deteksi Ulang</button></div>
-    </div>
-    <div class="kanban">
-      <div class="kanban-col"><div class="kanban-col-head c-baru"><span>Baru</span><span id="countBaru" class="pill pill-error">0</span></div><div class="kanban-body" id="colBaru"></div></div>
-      <div class="kanban-col"><div class="kanban-col-head c-proses"><span>Diproses</span><span id="countProses" class="pill pill-warning">0</span></div><div class="kanban-body" id="colProses"></div></div>
-      <div class="kanban-col"><div class="kanban-col-head c-selesai"><span>Selesai</span><span id="countSelesai" class="pill pill-success">0</span></div><div class="kanban-body" id="colSelesai"></div></div>
-    </div>
-    <div class="modal-overlay" id="issueModal">
-      <div class="modal-box">
-        <div class="modal-head"><div><h3 id="issueModalTitle">Detail Isu</h3><p style="font-size:12px;color:var(--outline);" id="issueModalMeta"></p></div><button class="icon-btn" onclick="closeIssueModal()"><span class="material-symbols-outlined">close</span></button></div>
-        <div class="modal-body" id="issueModalBody"></div>
-        <div class="modal-foot">
-          <select id="issueStatusSelect" class="field" style="height:36px;width:150px;"><option value="Baru">Baru</option><option value="Diproses">Diproses</option><option value="Selesai">Selesai</option></select>
-          <button class="btn btn-primary" id="btnUpdateIssue">Simpan Status</button>
-        </div>
-      </div>
-    </div>
-  `,
-  init(el) {
-    el.querySelector('#btnScanIsu').addEventListener('click', async (e) => {
-      const btn = e.target; btn.disabled = true; btn.textContent = 'Menjalankan...';
-      const res = await api('runIssueScan', {});
-      if (res.success) { showToast('Selesai', 'Deteksi isu selesai dijalankan.', 'ok'); loadIssues(true); }
-      else showToast('Gagal', res.message || '', 'err');
-      btn.disabled = false; btn.textContent = 'Jalankan Deteksi Ulang';
+  /* bilah periode + filter. opsi: {filter:true, onChange} */
+  APP.barPeriode = function (host, opsi) {
+    opsi = opsi || {}; var p = APP.periode(), MODE = [['hari', 'Hari'], ['minggu', 'Minggu'], ['bulan', 'Bulan'], ['tahun', 'Tahun'], ['gaji', 'Periode Gaji 26–25'], ['rentang', 'Rentang']];
+    var el = document.createElement('div'); el.className = 'bar'; host.appendChild(el);
+    function gambar() {
+      p = APP.periode(); var daf = (APP.S.rep && APP.S.rep.daftarFilter) || { divisi: [], asisten: [], mandor: [] };
+      el.innerHTML = '<div class="pills" role="tablist" aria-label="Jenis periode">' + MODE.map(function (m) { return '<button type="button" data-m="' + m[0] + '" class="' + (p.mode === m[0] ? 'on' : '') + '">' + m[1] + '</button>'; }).join('') + '</div>' +
+        (p.mode === 'rentang' ? '<input type="date" data-f="from" value="' + p.from + '" aria-label="Dari tanggal"><span class="muted">s.d.</span><input type="date" data-f="to" value="' + p.to + '" aria-label="Sampai tanggal">' :
+          '<button class="btn ghost icon" data-g="-1" aria-label="Sebelumnya">‹</button><input type="date" data-f="anchor" value="' + p.anchor + '" aria-label="Tanggal acuan"><button class="btn ghost icon" data-g="1" aria-label="Berikutnya">›</button>') +
+        '<span class="badge info nowrap" title="Rentang yang dilaporkan">' + U.esc(APP.labelPeriode(p)) + '</span>' +
+        (opsi.filter ? '<select data-s="divisi" aria-label="Filter divisi"><option value="">Semua divisi</option>' + daf.divisi.map(function (x) { return '<option' + (APP.S.filter.divisi === x ? ' selected' : '') + '>' + U.esc(x) + '</option>'; }).join('') + '</select><select data-s="asisten" aria-label="Filter asisten"><option value="">Semua asisten</option>' + daf.asisten.map(function (x) { return '<option' + (APP.S.filter.asisten === x ? ' selected' : '') + '>' + U.esc(x) + '</option>'; }).join('') + '</select><select data-s="mandor" aria-label="Filter mandor"><option value="">Semua mandor</option>' + daf.mandor.map(function (x) { return '<option' + (APP.S.filter.mandor === x ? ' selected' : '') + '>' + U.esc(x) + '</option>'; }).join('') + '</select>' : '') +
+        '<button class="btn ghost" data-r="1" title="Muat ulang dari server">' + U.ik('refresh', 16) + ' Segarkan</button>';
+    }
+    function ubah(paksa) { U.simpan('per', { mode: p.mode, from: p.from, to: p.to }); APP.invalidasi(); if (opsi.onChange) opsi.onChange(paksa); }
+    el.addEventListener('click', function (e) {
+      var m = e.target.closest('[data-m]'), g = e.target.closest('[data-g]'), r = e.target.closest('[data-r]');
+      if (m) { var baru = m.dataset.m; if (baru === 'rentang') { APP.S.per = { mode: 'rentang', anchor: p.anchor, from: p.from, to: p.to }; } else APP.S.per = { mode: baru, anchor: p.anchor }; gambar(); ubah(); }
+      else if (g) { APP.S.per.anchor = APP.geser(p.mode, p.anchor, +g.dataset.g); gambar(); ubah(); }
+      else if (r) { APP.invalidasi(); if (opsi.onChange) opsi.onChange(true); }
     });
-  },
-  show() { loadIssues(false); }
-});
-
-async function loadIssues(force) {
-  await swr('issues:all', 'getIssues', {}, (rows) => renderKanban(rows), { force });
-}
-
-function renderKanban(rows) {
-  rows = rows || [];
-  const cols = { Baru: [], Diproses: [], Selesai: [] };
-  rows.forEach(r => { (cols[r.Status] || cols.Baru).push(r); });
-  document.getElementById('countBaru').textContent = cols.Baru.length;
-  document.getElementById('countProses').textContent = cols.Diproses.length;
-  document.getElementById('countSelesai').textContent = cols.Selesai.length;
-  ['Baru', 'Diproses', 'Selesai'].forEach(st => {
-    const target = document.getElementById('col' + st);
-    target.innerHTML = cols[st].map(issueCardHtml).join('') || '<p style="font-size:12px;color:var(--outline);text-align:center;padding:16px;">Tidak ada isu.</p>';
-  });
-  target_bindClicks();
-}
-function target_bindClicks() {
-  document.querySelectorAll('.issue-card').forEach(c => c.addEventListener('click', () => openIssueModal(c.dataset.id)));
-}
-function issueCardHtml(r) {
-  const sevPill = r.Severity === 'Tinggi' ? 'pill-error' : r.Severity === 'Sedang' ? 'pill-warning' : 'pill-neutral';
-  return `<div class="issue-card" data-id="${escapeHtml(r.IdIsu)}">
-    <span class="pill ${sevPill}">${escapeHtml(r.Severity || '-')}</span>
-    <h4>${escapeHtml(r.Judul || r.Kategori || 'Isu')}</h4>
-    <p>${escapeHtml(r.Deskripsi || '')}</p>
-    <div class="issue-meta"><span>${escapeHtml(r.Divisi || '')} ${escapeHtml(r.Afdeling || '')}</span><span>${escapeHtml(r.Tanggal || '')}</span></div>
-  </div>`;
-}
-
-let currentIssueId = null;
-async function openIssueModal(id) {
-  currentIssueId = id;
-  document.getElementById('issueModal').classList.add('show');
-  document.getElementById('issueModalBody').innerHTML = '<p>Memuat...</p>';
-  const res = await api('getIssueDetail', { id });
-  if (!res.success) { showToast('Gagal', res.message || '', 'err'); closeIssueModal(); return; }
-  const d = res.data;
-  document.getElementById('issueModalTitle').textContent = d.Judul || d.Kategori || 'Detail Isu';
-  document.getElementById('issueModalMeta').textContent = (d.Divisi || '') + ' / ' + (d.Afdeling || '') + ' — ' + (d.Tanggal || '');
-  document.getElementById('issueStatusSelect').value = d.Status || 'Baru';
-  document.getElementById('issueModalBody').innerHTML = `
-    <div><h4 style="font-size:13px;margin-bottom:6px;">Deskripsi</h4><p style="font-size:13px;color:var(--on-surface-variant);">${escapeHtml(d.Deskripsi || '-')}</p>
-    <h4 style="font-size:13px;margin:12px 0 6px;">Rekomendasi SPV</h4>
-    <textarea class="field" id="issueRekomendasi" rows="4" style="width:100%;">${escapeHtml(d.RekomendasiSPV || '')}</textarea></div>
-    <div><h4 style="font-size:13px;margin-bottom:6px;">Komentar</h4><div id="issueComments" style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;">${(d.komentar || []).map(c => `<div style="font-size:12.5px;background:var(--surface-low);padding:8px;border-radius:8px;"><b>${escapeHtml(c.Oleh)}</b>: ${escapeHtml(c.Isi)}</div>`).join('') || '<p style="font-size:12px;color:var(--outline);">Belum ada komentar.</p>'}</div>
-    <div style="display:flex;gap:6px;margin-top:8px;"><input type="text" id="newComment" class="field" style="flex:1;" placeholder="Tambah komentar..."><button class="btn btn-outline btn-sm" id="btnAddComment">Kirim</button></div></div>
-  `;
-  document.getElementById('btnAddComment').addEventListener('click', async () => {
-    const val = document.getElementById('newComment').value.trim();
-    if (!val) return;
-    const res2 = await api('addIssueComment', { id: currentIssueId, komentar: val });
-    if (res2.success) openIssueModal(currentIssueId);
-    else showToast('Gagal', res2.message || '', 'err');
-  });
-}
-function closeIssueModal() { document.getElementById('issueModal').classList.remove('show'); currentIssueId = null; }
-
-document.addEventListener('DOMContentLoaded', () => {
-  const btnUpdate = document.getElementById('btnUpdateIssue');
-  if (btnUpdate) btnUpdate.addEventListener('click', async () => {
-    if (!currentIssueId) return;
-    btnUpdate.disabled = true;
-    const res = await api('updateIssue', {
-      id: currentIssueId,
-      status: document.getElementById('issueStatusSelect').value,
-      rekomendasiSPV: document.getElementById('issueRekomendasi') ? document.getElementById('issueRekomendasi').value : ''
+    el.addEventListener('change', function (e) {
+      var f = e.target.dataset.f, s = e.target.dataset.s;
+      if (f) { var v = e.target.value; if (!v) return; if (f === 'anchor') APP.S.per.anchor = v; else { APP.S.per[f] = v; if (APP.S.per.from > APP.S.per.to) { U.toast('Tanggal awal tidak boleh setelah tanggal akhir.', 'warn'); APP.S.per[f === 'from' ? 'to' : 'from'] = v; } if (U.parse(APP.S.per.to) - U.parse(APP.S.per.from) > 400 * 864e5) { U.toast('Rentang maksimum 400 hari.', 'warn'); APP.S.per.to = U.addDays(APP.S.per.from, 399); } } gambar(); ubah(); }
+      if (s) { APP.S.filter[s] = e.target.value; if (!e.target.value) delete APP.S.filter[s]; ubah(); }
     });
-    btnUpdate.disabled = false;
-    if (res.success) { showToast('Berhasil', 'Status isu diperbarui.', 'ok'); closeIssueModal(); loadIssues(true); }
-    else showToast('Gagal', res.message || '', 'err');
-  });
-});
+    gambar(); el.perbarui = gambar; return el;
+  };
 
-// ============================================================
-// HALAMAN: LAPORAN & EKSPOR
-// ============================================================
-registerPage('laporan', {
-  roles: ['Superadmin', 'Manager', 'SPV', 'Admin'],
-  template: () => `
-    <div class="page-head"><div><h1>Laporan & Ekspor</h1><p>Unduh laporan harian PDF atau kirim ringkasan via email.</p></div></div>
-    <div class="grid grid-2">
-      <div class="card">
-        <h3 style="font-size:15px;margin-bottom:10px;">Unduh Laporan PDF</h3>
-        <div class="field"><label>Tanggal Laporan</label><input type="date" id="pdfTanggal"></div>
-        <button class="btn btn-primary btn-block" id="btnDownloadPdf" style="margin-top:8px;">Download PDF</button>
-      </div>
-      <div class="card">
-        <h3 style="font-size:15px;margin-bottom:10px;">Kirim Ringkasan Email</h3>
-        <div class="field"><label>Alamat Email Tujuan</label><input type="email" id="emailTujuan" placeholder="manager@contoh.com"></div>
-        <button class="btn btn-outline btn-block" id="btnSendEmail" style="margin-top:8px;">Kirim Email</button>
-      </div>
-    </div>
-  `,
-  init(el) {
-    const today = new Date().toISOString().slice(0, 10);
-    el.querySelector('#pdfTanggal').value = today;
-    el.querySelector('#btnDownloadPdf').addEventListener('click', async (e) => {
-      const btn = e.target; btn.disabled = true; btn.textContent = 'Menyiapkan...';
-      const tgl = el.querySelector('#pdfTanggal').value;
-      const url = GAS_URL + '?action=downloadPdf&token=' + encodeURIComponent(AppState.token) + '&tanggalMulai=' + encodeURIComponent(tgl);
-      window.open(url, '_blank');
-      btn.disabled = false; btn.textContent = 'Download PDF';
-    });
-    el.querySelector('#btnSendEmail').addEventListener('click', async (e) => {
-      const btn = e.target; btn.disabled = true; btn.textContent = 'Mengirim...';
-      const email = el.querySelector('#emailTujuan').value;
-      const res = await api('sendDailySummaryEmail', { email, tanggal: el.querySelector('#pdfTanggal') ? el.querySelector('#pdfTanggal').value : new Date().toISOString().slice(0, 10) });
-      if (res.success) showToast('Berhasil', 'Email telah dikirim (atau dijadwalkan terkirim).', 'ok');
-      else showToast('Gagal', res.message || '', 'err');
-      btn.disabled = false; btn.textContent = 'Kirim Email';
-    });
+  /* ---------- tampilan: halaman awal & masuk ---------- */
+  var LOGO = 'assets/logo.png';
+  function landing() {
+    $('#land').innerHTML = '<div class="land"><div class="nav"><img src="' + LOGO + '" alt="Agri Wangi Sentosa"><span class="grow"></span><a class="btn" href="#/masuk">Masuk</a></div>' +
+      '<div class="hero"><div><h1>Laporan harian kebun teh, rapi dalam satu tempat.</h1><p class="lead">AWS Daily Report mengumpulkan absensi dan produksi PT. Agri Wangi Sentosa dari Excel harian, lalu menyajikannya per orang, mandor, asisten, dan divisi — lengkap dengan penilaian otomatis serta isu dan rekomendasi yang bisa disunting.</p><div class="cta"><a class="btn" href="#/masuk">Masuk ke aplikasi</a><a class="btn sec" href="#fitur" id="keFitur">Lihat fitur</a></div></div>' +
+      '<div class="mock" aria-hidden="true"><div class="m1"><div><small>Produksi</small>▮▮▮▮▯</div><div><small>Kehadiran</small>▮▮▮▮▮</div><div><small>Isu</small>▮▮▯▯▯</div></div><div class="bars">' + [40, 62, 55, 78, 70, 90, 66, 84, 72, 95, 80, 88].map(function (h) { return '<i style="height:' + h + '%"></i>'; }).join('') + '</div></div></div>' +
+      '<div class="feats" id="fitur">' + [['dash', 'Dashboard menyeluruh', 'Produksi, grade, kehadiran, dan mangkir dalam satu layar — per hari, minggu, bulan, tahun, atau periode gaji 26–25.'], ['users', 'Absensi akurat', 'Dihitung dari data Excel dengan rumus yang sama; per orang, kemandoran, asisten, dan divisi.'], ['leaf', 'Produksi & grade', 'Budget, realisasi, selisih, dan komposisi Grade I–III untuk setiap mandor, asisten, dan divisi.'], ['alert', 'Isu & rekomendasi', 'Aturan penilaian otomatis dengan ambang yang dapat diubah, serta rekomendasi yang dapat disunting.'], ['upload', 'Satu Excel per hari', 'Unggah berkas hari ini, data lama ditimpa dengan aman. Tampilan tabel sama persis dengan Excel.'], ['download', 'Ekspor & email', 'Unduh PDF, PowerPoint, Excel, atau CSV, dan kirim laporan harian otomatis ke email.']].map(function (f) { return '<div class="feat"><div class="ic">' + U.ik(f[0], 24) + '</div><b>' + f[1] + '</b><span>' + f[2] + '</span></div>'; }).join('') + '</div>' +
+      '<footer>© ' + new Date().getFullYear() + ' PT. Agri Wangi Sentosa · AWS Daily Report v' + w.APP_CONFIG.VERSI + '</footer></div>';
+    var k = $('#keFitur'); if (k) k.addEventListener('click', function (e) { e.preventDefault(); $('#fitur').scrollIntoView({ behavior: 'smooth' }); });
   }
-});
-
-// ============================================================
-// HALAMAN: PENGATURAN (Threshold + RBAC/Users)
-// ============================================================
-registerPage('pengaturan', {
-  roles: ['Superadmin', 'Manager'],
-  template: () => `
-    <div class="page-head"><div><h1>Pengaturan</h1><p>Ambang batas deteksi isu, dan manajemen pengguna.</p></div></div>
-    <div class="tabs" id="setTabs"><button class="tab-btn active" data-tab="threshold">Threshold</button><button class="tab-btn" data-tab="users">Pengguna</button><button class="tab-btn" data-tab="akun">Akun Saya</button><button class="tab-btn" data-tab="migrasi">Migrasi Data (v1)</button></div>
-    <div class="card" id="setThresholdWrap">
-      <div class="form-row">
-        <div class="field"><label>Maks Mangkir (%)</label><input type="number" id="thMangkir"></div>
-        <div class="field"><label>Maks Grade 3 (%)</label><input type="number" id="thG3"></div>
-        <div class="field"><label>Min Capaian Produksi (%)</label><input type="number" id="thBudget"></div>
-        <div class="field"><label>Maks Hari Pusingan</label><input type="number" id="thPusingan"></div>
-      </div>
-      <button class="btn btn-primary" id="btnSaveThreshold">Simpan Threshold</button>
-    </div>
-    <div class="card" id="setUsersWrap" style="display:none;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:10px;">
-        <h3 style="font-size:15px;">Daftar Pengguna</h3>
-        <button class="btn btn-outline btn-sm" id="btnAddUser">+ Tambah Pengguna</button>
-      </div>
-      <div class="table-wrap"><table class="data-table" id="usersTable"><thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody><tr><td colspan="5" class="empty-state">Memuat...</td></tr></tbody></table></div>
-    </div>
-    <div class="card" id="setAkunWrap" style="display:none;max-width:420px;">
-      <h3 style="font-size:15px;margin-bottom:10px;">Ganti Password</h3>
-      <div class="field"><label>Password Lama</label><input type="password" id="pwOld" autocomplete="current-password"></div>
-      <div class="field"><label>Password Baru</label><input type="password" id="pwNew" autocomplete="new-password"></div>
-      <div class="field"><label>Ulangi Password Baru</label><input type="password" id="pwNewConfirm" autocomplete="new-password"></div>
-      <div class="err-msg" id="pwErr"></div>
-      <button class="btn btn-primary" id="btnChangePassword">Simpan Password Baru</button>
-      <p style="font-size:12px;color:var(--outline);margin-top:10px;">Setelah berhasil, Anda akan diminta masuk kembali.</p>
-    </div>
-    <div class="card" id="setMigrasiWrap" style="display:none;">
-      <p style="font-size:13px;color:var(--on-surface-variant);margin-bottom:10px;">
-        Pindahkan data dari aplikasi <b>AWS Daily Report v1 (GAS Webapp)</b> ke database v2 (REST) ini.
-        Spreadsheet v1 <b>hanya dibaca</b>, tidak pernah ditulis. Jalankan <b>Pindai (Dry-run)</b> dulu
-        sebelum <b>Jalankan Migrasi</b> — aman diulang berkali-kali (idempoten).
-      </p>
-      <div class="field"><label>URL atau ID Spreadsheet v1 (sumber)</label><input type="text" id="migSourceUrl" placeholder="https://docs.google.com/spreadsheets/d/XXXXXXXX/edit"></div>
-      <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
-        <button class="btn btn-outline" id="btnMigDryRun">🔍 Pindai (Dry-run)</button>
-        <button class="btn btn-primary" id="btnMigRun" disabled>▶️ Jalankan Migrasi</button>
-      </div>
-      <div id="migResultWrap" style="margin-top:16px;display:none;">
-        <div class="table-wrap"><table class="data-table" id="migReportTable">
-          <thead><tr><th>Data</th><th>Di Sumber (v1)</th><th>Ditambah</th><th>Diperbarui</th><th>Dilewati</th></tr></thead>
-          <tbody></tbody>
-        </table></div>
-        <div id="migWarnings" style="margin-top:10px;font-size:12.5px;color:var(--warning);"></div>
-        <div id="migAkunBaru" style="margin-top:10px;"></div>
-      </div>
-    </div>
-  `,
-  init(el) {
-    el.querySelector('#setTabs').addEventListener('click', e => {
-      const btn = e.target.closest('.tab-btn'); if (!btn) return;
-      el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      el.querySelector('#setThresholdWrap').style.display = btn.dataset.tab === 'threshold' ? '' : 'none';
-      el.querySelector('#setUsersWrap').style.display = btn.dataset.tab === 'users' ? '' : 'none';
-      el.querySelector('#setAkunWrap').style.display = btn.dataset.tab === 'akun' ? '' : 'none';
-      el.querySelector('#setMigrasiWrap').style.display = btn.dataset.tab === 'migrasi' ? '' : 'none';
-      if (btn.dataset.tab === 'users') loadUsers(false);
+  function masuk() {
+    var siap = !!API.siapUrl();
+    $('#login').innerHTML = '<div class="login"><form class="box" id="fLogin" autocomplete="on" novalidate><img class="logo" src="' + LOGO + '" alt="Agri Wangi Sentosa"><h2 class="center" style="margin-bottom:4px">Masuk</h2><p class="center muted" style="margin:0 0 18px">Gunakan akun yang dibuat oleh Superadmin.</p>' +
+      (siap ? '' : '<div class="badge bad" style="display:block;border-radius:10px;padding:10px 12px;margin-bottom:14px;white-space:normal">Konfigurasi belum lengkap: alamat Web App (GAS_URL) di <b>js/config.js</b> belum diisi.</div>') +
+      '<div class="field"><label for="lgU">Nama pengguna</label><input id="lgU" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>' +
+      '<div class="field"><label for="lgP">Kata sandi</label><div style="position:relative"><input id="lgP" name="password" type="password" autocomplete="current-password" required style="padding-right:64px"><button type="button" class="btn sm ghost" id="lgLihat" style="position:absolute;right:4px;top:4px;height:30px">Lihat</button></div></div>' +
+      '<div class="err" id="lgErr" role="alert" style="color:var(--bad);min-height:20px;margin-bottom:6px"></div><button class="btn block" id="lgBtn" type="submit"' + (siap ? '' : ' disabled') + '>Masuk</button>' +
+      '<p class="center muted" style="margin:14px 0 0;font-size:12px">Lupa kata sandi? Hubungi Superadmin. · <a href="#/">Kembali</a></p></form></div>';
+    $('#lgLihat').addEventListener('click', function () { var i = $('#lgP'); i.type = i.type === 'password' ? 'text' : 'password'; this.textContent = i.type === 'password' ? 'Lihat' : 'Sembunyi'; });
+    $('#fLogin').addEventListener('submit', function (e) {
+      e.preventDefault(); var u = $('#lgU').value.trim(), p = $('#lgP').value, err = $('#lgErr'), b = $('#lgBtn'); err.textContent = '';
+      if (!u || !p) { err.textContent = 'Nama pengguna dan kata sandi wajib diisi.'; return; }
+      b.disabled = true; b.textContent = 'Memeriksa…';
+      API.call('auth.login', { username: u, password: p }).then(function (j) { API.simpanSesi(j.data.token); APP.S.me = j.data.me; APP.S.boot = j.data.boot; w.location.hash = '#/dashboard'; mulaiApp(); })
+        .catch(function (x) { err.textContent = x.message; b.disabled = false; b.textContent = 'Masuk'; $('#lgP').value = ''; $('#lgP').focus(); });
     });
-    el.querySelector('#btnChangePassword').addEventListener('click', async () => {
-      const errEl = el.querySelector('#pwErr');
-      errEl.textContent = '';
-      const oldPassword = el.querySelector('#pwOld').value;
-      const newPassword = el.querySelector('#pwNew').value;
-      const confirmPassword = el.querySelector('#pwNewConfirm').value;
-      if (!oldPassword || !newPassword) { errEl.textContent = 'Password lama dan baru wajib diisi.'; return; }
-      if (newPassword.length < 6) { errEl.textContent = 'Password baru minimal 6 karakter.'; return; }
-      if (newPassword !== confirmPassword) { errEl.textContent = 'Konfirmasi password baru tidak cocok.'; return; }
-      const btn = el.querySelector('#btnChangePassword');
-      btn.disabled = true; btn.textContent = 'Menyimpan...';
-      const res = await api('changePassword', { oldPassword, newPassword });
-      btn.disabled = false; btn.textContent = 'Simpan Password Baru';
-      if (res.success) {
-        showToast('Berhasil', 'Password diganti. Silakan masuk kembali.', 'ok');
-        setTimeout(() => doLogout(), 1200);
-      } else {
-        errEl.textContent = res.message || 'Gagal mengganti password.';
-      }
-    });
-    el.querySelector('#btnMigDryRun').addEventListener('click', () => runMigrationV1(el, true));
-    el.querySelector('#btnMigRun').addEventListener('click', () => {
-      if (!confirm('Migrasi akan MENULIS data baru ke database v2 ini (akun baru, data historis absensi/produksi/isu yang belum ada). Tindakan ini aman diulang, tapi tidak dapat "dibatalkan" secara otomatis. Lanjutkan?')) return;
-      runMigrationV1(el, false);
-    });
-    el.querySelector('#btnSaveThreshold').addEventListener('click', async (e) => {
-      const btn = e.target; btn.disabled = true; btn.textContent = 'Menyimpan...';
-      const payload = {
-        maxMangkirPct: Number(el.querySelector('#thMangkir').value || 0),
-        maxG3Pct: Number(el.querySelector('#thG3').value || 0),
-        minProduksiBudgetPct: Number(el.querySelector('#thBudget').value || 0),
-        maxPusinganHari: Number(el.querySelector('#thPusingan').value || 0)
-      };
-      const res = await api('saveThresholds', payload);
-      if (res.success) { showToast('Berhasil', 'Threshold tersimpan.', 'ok'); AppState.thresholds = payload; }
-      else showToast('Gagal', res.message || '', 'err');
-      btn.disabled = false; btn.textContent = 'Simpan Threshold';
-    });
-    el.querySelector('#btnAddUser').addEventListener('click', () => {
-      const username = prompt('Username baru:'); if (!username) return;
-      const nama = prompt('Nama lengkap:') || username;
-      const role = prompt('Role (Superadmin/Manager/SPV/Admin/Askep/Asisten):') || 'Admin';
-      const password = prompt('Password awal:') || 'password123';
-      api('addUser', { username, nama, role, password }).then(res => {
-        if (res.success) { showToast('Berhasil', 'Pengguna ditambahkan.', 'ok'); loadUsers(true); }
-        else showToast('Gagal', res.message || '', 'err');
-      });
-    });
-    loadThresholdForm();
-  },
-  show() { loadThresholdForm(); }
-});
-
-async function loadThresholdForm() {
-  const res = await api('getThresholds', {});
-  if (res.success) {
-    AppState.thresholds = res.data;
-    const t = res.data;
-    const map = { thMangkir: 'maxMangkirPct', thG3: 'maxG3Pct', thBudget: 'minProduksiBudgetPct', thPusingan: 'maxPusinganHari' };
-    Object.keys(map).forEach(id => { const el = document.getElementById(id); if (el) el.value = t[map[id]] != null ? t[map[id]] : ''; });
-  }
-}
-
-async function runMigrationV1(el, dryRun) {
-  const sourceId = el.querySelector('#migSourceUrl').value.trim();
-  if (!sourceId) { showToast('Kosong', 'Isi URL/ID spreadsheet v1 dulu.', 'err'); return; }
-  const btnDry = el.querySelector('#btnMigDryRun'), btnRun = el.querySelector('#btnMigRun');
-  btnDry.disabled = true; btnRun.disabled = true;
-  const activeBtn = dryRun ? btnDry : btnRun;
-  const originalText = activeBtn.textContent;
-  activeBtn.innerHTML = '<span class="spinner spinner-sm"></span> ' + (dryRun ? 'Memindai...' : 'Menjalankan migrasi...');
-
-  const res = await api('migrateFromV1', { sourceId, dryRun });
-
-  btnDry.disabled = false; activeBtn.textContent = originalText;
-  if (!res.success) { showToast('Gagal', res.message || 'Terjadi kesalahan.', 'err'); return; }
-
-  const d = res.data;
-  el.querySelector('#migResultWrap').style.display = '';
-  const tbody = el.querySelector('#migReportTable tbody');
-  const labelMap = { USERS: 'Pengguna', ABSENSI: 'Absensi', PRODUKSI: 'Produksi', ISU: 'Isu & Rekomendasi', KOMENTAR: 'Komentar Isu', THRESHOLD: 'Threshold', DIVISI: 'Master Divisi/Afdeling' };
-  tbody.innerHTML = Object.keys(d.laporan || {}).map(k => {
-    const r = d.laporan[k];
-    return `<tr><td>${labelMap[k] || k}</td><td>${r.sumber}</td><td>${r.ditambah}</td><td>${r.diperbarui}</td><td>${r.dilewati}</td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty-state">Tidak ada data.</td></tr>';
-
-  const warnEl = el.querySelector('#migWarnings');
-  warnEl.innerHTML = (d.peringatan && d.peringatan.length) ? '<b>⚠️ Peringatan:</b><ul style="margin:6px 0 0 18px;">' + d.peringatan.map(w => '<li>' + escapeHtml(w) + '</li>').join('') + '</ul>' : '';
-
-  const akunEl = el.querySelector('#migAkunBaru');
-  if (d.akunBaru && d.akunBaru.length) {
-    akunEl.innerHTML = '<b style="color:var(--success);">✅ Akun baru dibuat (password hanya tampil SEKALI di sini — catat &amp; sampaikan ke pengguna):</b>' +
-      '<div class="table-wrap" style="margin-top:6px;"><table class="data-table"><thead><tr><th>Username</th><th>Nama</th><th>Password Awal</th></tr></thead><tbody>' +
-      d.akunBaru.map(u => `<tr><td>${escapeHtml(u.username)}</td><td>${escapeHtml(u.nama)}</td><td class="mono">${escapeHtml(u.passwordAwal)}</td></tr>`).join('') +
-      '</tbody></table></div>';
-  } else {
-    akunEl.innerHTML = '';
+    setTimeout(function () { $('#lgU').focus(); }, 50);
   }
 
-  if (dryRun) {
-    btnRun.disabled = false;
-    showToast('Pemindaian selesai', 'Periksa hasilnya, lalu klik "Jalankan Migrasi" bila sudah sesuai.', 'ok');
-  } else {
-    btnRun.disabled = true;
-    showToast('Migrasi selesai', 'Data dari v1 berhasil dipindahkan.', 'ok');
+  /* ---------- kerangka aplikasi ---------- */
+  function kerangka() {
+    var me = APP.S.me, nav = MENU.filter(function (m) { return m.r.indexOf(me.role) >= 0; });
+    var ini = (me.nama || me.username || '?').trim().split(/\s+/).slice(0, 2).map(function (x) { return x[0]; }).join('').toUpperCase();
+    $('#app').innerHTML = '<aside class="side" id="side" aria-label="Menu utama"><div class="brand"><div class="plate"><img src="' + LOGO + '" alt="Agri Wangi Sentosa"></div></div><nav>' + nav.map(function (m) { return '<a class="nav" href="#/' + m.id + '" data-id="' + m.id + '">' + U.ik(m.ik) + '<span>' + m.l + '</span></a>'; }).join('') + '</nav><div class="foot">v' + w.APP_CONFIG.VERSI + ' · ' + U.esc(APP.S.boot && APP.S.boot.namaPerusahaan || '') + '</div></aside>' +
+      '<div class="main"><header class="top"><button class="btn ghost icon menu-btn" id="menuBtn" aria-label="Buka menu">' + U.ik('menu') + '</button><div class="title" id="judul"></div><span class="sp"></span><button class="btn ghost icon" id="modeBtn" aria-label="Ganti mode terang/gelap">' + U.ik(document.documentElement.getAttribute('data-mode') === 'gelap' ? 'sun' : 'moon') + '</button>' +
+      '<div class="menu"><button class="avatar" id="userBtn" aria-label="Menu akun" aria-haspopup="true">' + U.esc(ini) + '</button><div class="pop hide" id="userPop"><div style="padding:8px 10px"><b>' + U.esc(me.nama) + '</b><div class="muted" style="font-size:12px">' + U.esc(APP.ROLE_NAMA[me.role] || me.role) + (me.scope ? ' · ' + U.esc(me.scope) : '') + '</div></div><hr style="border:0;border-top:1px solid var(--border);margin:4px 0"><button data-a="sandi">' + U.ik('key', 16) + ' Ubah kata sandi</button><button data-a="semua">' + U.ik('out', 16) + ' Keluar dari semua perangkat</button><button data-a="keluar">' + U.ik('out', 16) + ' Keluar</button></div></div></header><main class="page" id="isi" tabindex="-1"></main></div>' +
+      '<nav class="bottom" aria-label="Menu cepat">' + ['dashboard', 'absensi', 'produksi', 'isu'].filter(APP.boleh).map(function (id) { var m = MENU.filter(function (x) { return x.id === id; })[0]; return '<a href="#/' + id + '" data-id="' + id + '">' + U.ik(m.ik, 22) + '<span>' + m.l.split(' ')[0] + '</span></a>'; }).join('') + '<a href="#" id="bbMenu">' + U.ik('menu', 22) + '<span>Menu</span></a></nav>';
+    var side = $('#side'), tutup = function () { side.classList.remove('open'); };
+    $('#menuBtn').addEventListener('click', function () { side.classList.add('open'); });
+    $('#bbMenu').addEventListener('click', function (e) { e.preventDefault(); side.classList.add('open'); });
+    document.addEventListener('click', function (e) { if (side.classList.contains('open') && !e.target.closest('#side') && !e.target.closest('#menuBtn') && !e.target.closest('#bbMenu')) tutup(); var pop = $('#userPop'); if (pop && !e.target.closest('.menu')) pop.classList.add('hide'); });
+    side.addEventListener('click', function (e) { if (e.target.closest('a.nav')) tutup(); });
+    $('#modeBtn').addEventListener('click', function () { var g = document.documentElement.getAttribute('data-mode') === 'gelap'; APP.setTema(null, g ? 'terang' : 'gelap'); });
+    $('#userBtn').addEventListener('click', function () { $('#userPop').classList.toggle('hide'); });
+    $('#userPop').addEventListener('click', function (e) { var b = e.target.closest('button[data-a]'); if (!b) return; $('#userPop').classList.add('hide'); var a = b.dataset.a; if (a === 'sandi') APP.ubahSandi(false); else if (a === 'keluar') APP.keluar(); else if (a === 'semua') U.konfirmasi('Keluar dari semua perangkat?', 'Semua sesi Anda di perangkat lain akan berakhir.', 'Keluar semua').then(function (ok) { if (ok) API.d('auth.keluarSemua').then(function () { APP.keluar(true); }).catch(function (x) { U.toast(x.message, 'err'); }); }); });
   }
-}
+  APP.keluar = function (diam) { API.call('auth.keluar', {}, { diam: true }).catch(function () {}); API.simpanSesi(''); APP.S = { me: null, boot: APP.S.boot, status: null, rep: null, repKey: '', per: null, filter: {} }; CH.bersih(); $('#app').classList.add('hide'); $('#app').innerHTML = ''; w.location.hash = '#/masuk'; rute(true); if (!diam) U.toast('Anda telah keluar.'); };
+  APP.ubahSandi = function (paksa) {
+    var m = U.modal('<h2>' + (paksa ? 'Ganti kata sandi sementara' : 'Ubah kata sandi') + '</h2>' + (paksa ? '<p class="muted">Demi keamanan, ganti kata sandi sementara dari Superadmin sebelum melanjutkan.</p>' : '') + '<form id="fSandi"><div class="field"><label>Kata sandi saat ini</label><input type="password" id="sLama" autocomplete="current-password" required></div><div class="field"><label>Kata sandi baru</label><input type="password" id="sBaru" autocomplete="new-password" required><div class="hint">Minimal 8 karakter, mengandung huruf dan angka.</div></div><div class="field"><label>Ulangi kata sandi baru</label><input type="password" id="sUlang" autocomplete="new-password" required></div><div class="err" id="sErr" style="color:var(--bad);min-height:18px"></div><div class="acts">' + (paksa ? '' : '<button type="button" class="btn ghost" data-tutup>Batal</button>') + '<button class="btn" type="submit">Simpan</button></div></form>', { kunci: !!paksa });
+    $('#fSandi', m.el).addEventListener('submit', function (e) {
+      e.preventDefault(); var lama = $('#sLama').value, baru = $('#sBaru').value, ul = $('#sUlang').value, er = $('#sErr');
+      if (baru !== ul) { er.textContent = 'Pengulangan kata sandi tidak sama.'; return; } if (baru.length < 8 || !/[A-Za-z]/.test(baru) || !/\d/.test(baru)) { er.textContent = 'Minimal 8 karakter dengan huruf dan angka.'; return; }
+      API.d('auth.ubahSandi', { lama: lama, baru: baru }).then(function (d) { API.simpanSesi(d.token); APP.S.me = d.me; m.tutup(); U.toast('Kata sandi diganti.', 'ok'); if (paksa) mulaiApp(); }).catch(function (x) { er.textContent = x.message; });
+    });
+  };
 
-async function loadUsers(force) {
-  await swr('users:all', 'getUsers', {}, (rows) => {
-    const tbody = document.querySelector('#usersTable tbody');
-    if (!rows || !rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Tidak ada pengguna.</td></tr>'; return; }
-    tbody.innerHTML = rows.map(u => `
-      <tr>
-        <td>${escapeHtml(u.Username)}</td><td>${escapeHtml(u.Nama)}</td><td><span class="role-chip">${escapeHtml(u.Role)}</span></td>
-        <td>${u.Status === 'Nonaktif' ? '<span class="pill pill-error">Nonaktif</span>' : '<span class="pill pill-success">Aktif</span>'}</td>
-        <td><button class="btn btn-outline btn-sm" data-u="${escapeHtml(u.Username)}" data-s="${u.Status === 'Nonaktif' ? 'Aktif' : 'Nonaktif'}">${u.Status === 'Nonaktif' ? 'Aktifkan' : 'Nonaktifkan'}</button></td>
-      </tr>`).join('');
-    tbody.querySelectorAll('button[data-u]').forEach(b => b.addEventListener('click', async () => {
-      const res = await api('updateUserStatus', { username: b.dataset.u, status: b.dataset.s });
-      if (res.success) { showToast('Berhasil', 'Status pengguna diperbarui.', 'ok'); loadUsers(true); }
-      else showToast('Gagal', res.message || '', 'err');
-    }));
-  }, { force });
-}
+  /* ---------- rute ---------- */
+  var terakhir = '';
+  function rute(paksa) {
+    var h = (w.location.hash || '#/').replace(/^#\/?/, ''), id = h.split('?')[0];
+    var login = !!APP.S.me, kunci = id + '|' + (login ? 1 : 0);
+    if (paksa !== true && kunci === terakhir) return; terakhir = kunci;
+    ['land', 'login', 'app'].forEach(function (x) { $('#' + x).classList.add('hide'); });
+    if (!login) {
+      if (id === 'masuk' || (id && id !== '' && id !== 'fitur')) { masuk(); $('#login').classList.remove('hide'); document.title = 'Masuk · AWS Daily Report'; }
+      else { landing(); $('#land').classList.remove('hide'); document.title = 'AWS Daily Report · PT. Agri Wangi Sentosa'; }
+      return;
+    }
+    if (!id || id === 'masuk' || id === 'fitur') { w.location.hash = '#/dashboard'; return; }
+    var m = MENU.filter(function (x) { return x.id === id; })[0];
+    if (!m || !APP.boleh(id)) { w.location.hash = '#/dashboard'; if (m) U.toast('Peran Anda tidak memiliki akses ke halaman itu.', 'warn'); return; }
+    $('#app').classList.remove('hide');
+    U.$$('a[data-id]').forEach(function (a) { a.classList.toggle('on', a.dataset.id === id); });
+    $('#judul').textContent = m.l; document.title = m.l + ' · AWS Daily Report';
+    var host = $('#isi'); CH.bersih(); host.innerHTML = ''; host.scrollTop = 0; w.scrollTo(0, 0);
+    var f = APP.V[id]; if (!f) { host.innerHTML = UI.kosong('Halaman belum tersedia', id); return; }
+    try { f(host); } catch (e) { UI.galat(host, e); }
+  }
+  APP.rute = rute;
+  function mulaiApp() {
+    kerangka(); APP.terapkanTema();
+    APP.muatStatus().catch(function () {}).then(function () { rute(true); if (APP.S.me.paksaGanti) APP.ubahSandi(true); });
+  }
+  API.onAuthLost = function (e) { if (!APP.S.me) return; if (e && e.code === 'GANTI_SANDI') return; API.simpanSesi(''); APP.S.me = null; CH.bersih(); w.location.hash = '#/masuk'; rute(true); U.toast('Sesi berakhir. Silakan masuk kembali.', 'warn'); };
+  var asliCall = API.call; API.call = function (a, d, o) { return asliCall(a, d, o).catch(function (e) { if (e && e.code === 'GANTI_SANDI' && APP.S.me && !document.querySelector('#fSandi')) APP.ubahSandi(true); throw e; }); };
 
-// ============================================================
-// INIT APLIKASI
-// ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('loadingOverlay').style.display = 'none';
-  warmUp();
-
-  document.getElementById('btnLogin').addEventListener('click', () => {
-    doLogin(document.getElementById('loginUsername').value.trim(), document.getElementById('loginPassword').value);
-  });
-  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btnLogin').click(); });
-
-  document.getElementById('btnLogout').addEventListener('click', doLogout);
-  document.getElementById('mobileMenuBtn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('show'));
-
-  document.querySelectorAll('[data-nav-page]').forEach(el => el.addEventListener('click', (e) => { e.preventDefault(); go(el.dataset.navPage); document.getElementById('sidebar').classList.remove('show'); }));
-
-  updateSyncPill();
-  tryRestoreSession();
-});
+  function init() {
+    API.muatSesi(); APP.terapkanTema();
+    w.addEventListener('hashchange', function () { rute(); });
+    w.addEventListener('resize', U.debounce(function () { U.$$('.chart').forEach(function (c) { var i = w.echarts && echarts.getInstanceByDom(c); if (i) i.resize(); }); }, 200));
+    if (w.matchMedia) w.matchMedia('(prefers-color-scheme: dark)').addEventListener && w.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (U.baca('mode', '') === 'sistem') { APP.terapkanTema(); CH.gambarUlang(); } });
+    if (!API.siapUrl()) { rute(true); return; }
+    API.d('app.boot', {}, { diam: true }).then(function (b) { APP.S.boot = b; APP.terapkanTema(); }).catch(function () {}).then(function () {
+      if (!API.token) return rute(true);
+      API.d('auth.me', {}, { diam: true }).then(function (d) { APP.S.me = d.me; APP.S.boot = d.boot; mulaiApp(); }).catch(function () { API.simpanSesi(''); rute(true); });
+    });
+  }
+  w.APP = APP; document.addEventListener('DOMContentLoaded', init);
+})(window);
