@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.0 — ekspor Excel, CSV, PowerPoint, PDF (cetak) */
+/* AWS Daily Report v1.0.15 — ekspor Excel, CSV, PowerPoint, PDF (cetak) */
 (function (w) {
   'use strict';
   var EX = {};
@@ -68,6 +68,60 @@
       if (rep.mandor.length) tab('Produksi per Mandor', ['Divisi', 'Mandor', 'Budget', 'Produksi', '% Capai', 'Selisih', '% G1', '% G3'], rep.mandor.slice().sort(function (a, b) { return b.kg - a.kg; }).slice(0, 26).map(function (m) { return [m.divisi + ' / ' + m.sub, m.mandor, f(m.budget), f(m.kg), U.pct(m.pctCapai), f(m.selisih), U.pct(m.pctG1), U.pct(m.pctG3)]; }));
       if (rep.isu.length) tab('Isu & Rekomendasi', ['Aturan', 'Tingkat', 'Entitas', 'Uraian', 'Rekomendasi'], rep.isu.slice(0, 26).map(function (i) { return [i.aturan, i.level === 'merah' ? 'Merah' : 'Kuning', i.entitas, i.teks, i.rekomendasi]; }));
       return p.write({ outputType: 'blob' }).then(function (blob) { U.unduh(EX.nama(rep, 'pptx'), blob); });
+    });
+  };
+  /* PPTX dari deck Presentasi (slide + narasi yang sama dengan layar) */
+  EX.pptDeck = function (deck, rep) {
+    if (!w.PptxGenJS) return Promise.reject(new Error('Pustaka PowerPoint belum termuat.'));
+    return EX.logoData().then(function (logo) {
+      var p = new PptxGenJS(); p.layout = 'LAYOUT_WIDE'; p.title = 'Presentasi Data AWS'; p.company = 'PT. Agri Wangi Sentosa';
+      var HIJAU = '166534', WARNA = { ok: '166534', warn: 'B45309', bad: 'B91C1C' }, N = deck.slides.length;
+      function kop(s, sl, i) {
+        s.background = { color: 'FFFFFF' }; s.addShape(p.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.9, fill: { color: HIJAU } });
+        s.addText(sl.judul, { x: 0.4, y: 0.1, w: 10, h: 0.7, fontSize: 20, bold: true, color: 'FFFFFF', fontFace: 'Calibri', fit: 'shrink' });
+        if (logo) { s.addShape(p.ShapeType.roundRect, { x: 10.85, y: 0.1, w: 2.3, h: 0.7, fill: { color: 'FFFFFF' }, rectRadius: 0.08 }); s.addImage({ data: logo, x: 10.9, y: 0.12, w: 2.2, h: 0.66, sizing: { type: 'contain', w: 2.2, h: 0.66 } }); }
+        if (sl.sub) s.addText(sl.sub, { x: 0.4, y: 0.95, w: 9.5, h: 0.35, fontSize: 11, color: '6B7280', italic: true });
+        if (sl.status1) s.addText('Penilaian: ' + sl.status1[0], { x: 9.9, y: 0.95, w: 3, h: 0.35, fontSize: 12, bold: true, align: 'right', color: WARNA[sl.status1[1]] });
+        s.addText('PT. Agri Wangi Sentosa · ' + (i + 1) + ' / ' + N, { x: 0.4, y: 7.1, w: 12.5, h: 0.3, fontSize: 9, color: '6B7280' });
+      }
+      function teks(arr) { return arr.map(function (t) { return { text: t, options: { bullet: true, breakLine: true } }; }); }
+      var th = { bold: true, color: 'FFFFFF', fill: { color: HIJAU }, fontSize: 10 };
+      deck.slides.forEach(function (sl, i) {
+        var s = p.addSlide();
+        if (sl.tipe === 'cover') {
+          s.background = { color: HIJAU };
+          if (logo) { s.addShape(p.ShapeType.roundRect, { x: 0.8, y: 0.8, w: 4.2, h: 1.4, fill: { color: 'FFFFFF' }, rectRadius: 0.15 }); s.addImage({ data: logo, x: 0.95, y: 0.9, w: 3.9, h: 1.2, sizing: { type: 'contain', w: 3.9, h: 1.2 } }); }
+          s.addText(sl.judul, { x: 0.8, y: 2.9, w: 11.5, h: 1, fontSize: 38, bold: true, color: 'FFFFFF' }); s.addText(sl.sub, { x: 0.8, y: 3.9, w: 11.5, h: 0.5, fontSize: 18, color: 'D1FAE5' });
+          s.addText(sl.catatan, { x: 0.8, y: 4.6, w: 11.5, h: 0.5, fontSize: 20, color: 'FFFFFF' }); s.addText(sl.catatan2, { x: 0.8, y: 6.6, w: 11.5, h: 0.4, fontSize: 12, color: 'D1FAE5' }); return;
+        }
+        kop(s, sl, i); var y = 1.4;
+        if (sl.peringatan) { s.addText('⚠ ' + sl.peringatan, { x: 0.4, y: y, w: 12.5, h: 0.45, fontSize: 11, color: '92400E', fill: { color: 'FEF3C7' } }); y += 0.55; }
+        if (sl.status) { var w4 = 12.5 / sl.status.length; sl.status.forEach(function (b, j) { var x = 0.4 + j * w4; s.addShape(p.ShapeType.roundRect, { x: x, y: y, w: w4 - 0.15, h: 1.5, fill: { color: 'F4F7F5' }, line: { color: WARNA[b.kls], width: 1.5 }, rectRadius: 0.1 }); s.addText(b.n, { x: x + 0.1, y: y + 0.05, w: w4 - 0.35, h: 0.3, fontSize: 11, bold: true, color: '5B6F63' }); s.addText(b.v, { x: x + 0.1, y: y + 0.38, w: w4 - 0.35, h: 0.5, fontSize: 20, bold: true, color: '0F1F17' }); s.addText(b.s + ' · ' + b.label, { x: x + 0.1, y: y + 0.95, w: w4 - 0.35, h: 0.45, fontSize: 10, bold: true, color: WARNA[b.kls] }); }); y += 1.65; }
+        if (sl.kpi) { var wk = 12.5 / sl.kpi.length; sl.kpi.forEach(function (c, j) { var x = 0.4 + j * wk; s.addShape(p.ShapeType.roundRect, { x: x, y: y, w: wk - 0.15, h: 1.15, fill: { color: 'F4F7F5' }, line: { color: 'DCE5DF', width: 1 }, rectRadius: 0.1 }); s.addText(c.l, { x: x + 0.1, y: y + 0.05, w: wk - 0.35, h: 0.28, fontSize: 10, bold: true, color: '5B6F63' }); s.addText(String(c.v), { x: x + 0.1, y: y + 0.33, w: wk - 0.35, h: 0.45, fontSize: 18, bold: true, color: '0F1F17', fit: 'shrink' }); if (c.s) s.addText(c.s, { x: x + 0.1, y: y + 0.8, w: wk - 0.35, h: 0.28, fontSize: 9, color: '6B7280', fit: 'shrink' }); }); y += 1.3; }
+        var ch = (sl.charts || []).map(function (c) { try { return { j: c.judul, img: CH.png(c.jenis, c.spec(), 900, 400) }; } catch (e) { return null; } }).filter(function (c) { return c && c.img; });
+        var sisa = 7.0 - y, nar = sl.narasi && sl.narasi.length;
+        if (ch.length) { var hc = nar || sl.tabel ? Math.min(3.0, sisa * 0.55) : sisa - 0.1, wc = 12.5 / ch.length; ch.forEach(function (c, j) { s.addText(c.j, { x: 0.4 + j * wc, y: y, w: wc - 0.1, h: 0.25, fontSize: 10, bold: true, color: HIJAU }); s.addImage({ data: c.img, x: 0.4 + j * wc, y: y + 0.27, w: wc - 0.1, h: hc - 0.3, sizing: { type: 'contain', w: wc - 0.1, h: hc - 0.3 } }); }); y += hc; }
+        if (sl.tabel) { var bar = sl.tabel.baris.slice(0, Math.max(3, Math.floor((7.0 - y - 0.5) / 0.27))); if (sl.tabel.judul) { s.addText(sl.tabel.judul, { x: 0.4, y: y, w: 12.5, h: 0.25, fontSize: 10, bold: true, color: HIJAU }); y += 0.27; } s.addTable([sl.tabel.kepala.map(function (h) { return { text: h, options: th }; })].concat(bar.map(function (r) { return r.map(function (v) { return { text: String(v === undefined || v === null ? '' : v), options: { fontSize: 9 } }; }); })), { x: 0.4, y: y, w: 12.5, border: { type: 'solid', color: 'DCE5DF', pt: 0.5 }, colW: sl.tabel.kepala.map(function () { return 12.5 / sl.tabel.kepala.length; }) }); y += (bar.length + 1) * 0.27 + 0.1; }
+        if (nar) { s.addText([{ text: (sl.judulNarasi || 'Penjelasan'), options: { bold: true, color: HIJAU, breakLine: true } }].concat(teks(sl.narasi)), { x: 0.4, y: y, w: 12.5, h: Math.max(0.8, 7.0 - y), fontSize: 12, color: '1F2937', valign: 'top', fit: 'shrink' }); }
+        if (sl.kol3) {
+          var kk = [], k3 = sl.kol3;
+          if (k3.kel && k3.kel.length) kk.push(['✔ Kelebihan', '166534', 'F0FDF4', k3.kel]);
+          if (k3.kur && k3.kur.length) kk.push(['✖ Kekurangan', 'B91C1C', 'FEF2F2', k3.kur]);
+          if (k3.rek && k3.rek.length) kk.push(['➜ Rekomendasi', '1D4ED8', 'EFF6FF', k3.rek.map(function (r) { return '[' + r.p + '] ' + r.t; })]);
+          var wk3 = 12.5 / (kk.length || 1), hk = Math.min(7.0 - y, 4.6), fk = kk.length === 1 ? 14 : 12.5;
+          kk.forEach(function (c, j) { var x = 0.4 + j * wk3; s.addShape(p.ShapeType.roundRect, { x: x, y: y, w: wk3 - 0.15, h: hk, fill: { color: c[2] }, line: { color: c[1], width: 1 }, rectRadius: 0.08 }); s.addText([{ text: c[0], options: { bold: true, color: c[1], breakLine: true, fontSize: 13 } }].concat(teks(c[3])), { x: x + 0.1, y: y + 0.05, w: wk3 - 0.35, h: hk - 0.1, fontSize: fk, color: '1F2937', valign: 'top', fit: 'shrink' }); });
+        }
+        if (sl.kartu) {
+          var wg = 12.5 / sl.kartu.length;
+          sl.kartu.forEach(function (c, j) { var x = 0.4 + j * wg, hg = Math.min(7.0 - y, 5.6); s.addShape(p.ShapeType.roundRect, { x: x, y: y, w: wg - 0.15, h: hg, fill: { color: 'F8FAFC' }, line: { color: 'CBD5E1', width: 1 }, rectRadius: 0.08 });
+            var runs = [{ text: c.aturan + ' — ' + c.nama + '  (' + c.merah + ' merah · ' + c.kuning + ' kuning)', options: { bold: true, color: HIJAU, breakLine: true, fontSize: 12 } }, { text: 'Bukti data', options: { bold: true, breakLine: true } }].concat(teks(c.bukti));
+            if (c.penyebab.length) runs.push({ text: 'Indikasi penyebab', options: { bold: true, breakLine: true } }), runs = runs.concat(teks(c.penyebab));
+            runs.push({ text: 'Gagasan / tindakan', options: { bold: true, breakLine: true } }); runs = runs.concat(teks(c.tindakan)); runs.push({ text: 'Target: ' + c.target, options: { bold: true, color: '1D4ED8' } });
+            s.addText(runs, { x: x + 0.1, y: y + 0.05, w: wg - 0.35, h: hg - 0.1, fontSize: 10.5, color: '1F2937', valign: 'top', fit: 'shrink' }); });
+        }
+        if (sl.lintas) { var tx = sl.lintas.length ? sl.lintas.reduce(function (a, l) { return a.concat([{ text: l.j, options: { bold: true, color: HIJAU, breakLine: true } }, { text: 'Bukti: ' + l.bukti, options: { breakLine: true } }, { text: 'Gagasan: ' + l.g, options: { breakLine: true } }]); }, []) : [{ text: 'Tidak ada pola lintas data yang menonjol pada periode ini.' }]; s.addText(tx, { x: 0.4, y: y, w: 12.5, h: 7.0 - y, fontSize: 11, color: '1F2937', valign: 'top', fit: 'shrink' }); }
+      });
+      return p.write({ outputType: 'blob' }).then(function (blob) { U.unduh('AWS-Presentasi_' + rep.from + (rep.from === rep.to ? '' : '_sd_' + rep.to) + '.pptx', blob); });
     });
   };
   /* PDF = tata letak cetak A4 lalu "Simpan sebagai PDF" dari dialog cetak */

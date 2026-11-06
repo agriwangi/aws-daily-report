@@ -1,11 +1,11 @@
-/* AWS Daily Report v1.0.0 — kerangka aplikasi: halaman awal, masuk, menu, tema, periode, rute */
+/* AWS Daily Report v1.0.15 — kerangka aplikasi: halaman awal, masuk, menu, tema, periode, rute */
 (function (w) {
   'use strict';
   var APP = { S: { me: null, boot: null, status: null, rep: null, repKey: '', per: null, filter: {} }, V: {} };
   var SEMUA = ['superadmin', 'admin', 'spv', 'manager', 'askep', 'asisten'], ADM = ['superadmin', 'admin'], PEN = ['superadmin', 'admin', 'spv', 'manager'];
   var MENU = [
     { id: 'dashboard', l: 'Dashboard', ik: 'dash', r: SEMUA }, { id: 'absensi', l: 'Absensi', ik: 'users', r: SEMUA }, { id: 'produksi', l: 'Produksi', ik: 'leaf', r: SEMUA },
-    { id: 'rekap', l: 'Rekap', ik: 'table', r: SEMUA }, { id: 'isu', l: 'Isu & Rekomendasi', ik: 'alert', r: SEMUA }, { id: 'unggah', l: 'Unggah Excel', ik: 'upload', r: ADM },
+    { id: 'rekap', l: 'Rekap', ik: 'table', r: SEMUA }, { id: 'isu', l: 'Isu & Rekomendasi', ik: 'alert', r: SEMUA }, { id: 'presentasi', l: 'Presentasi', ik: 'chart', r: SEMUA }, { id: 'unggah', l: 'Unggah Excel', ik: 'upload', r: ADM },
     { id: 'manual', l: 'Input Manual', ik: 'edit', r: ADM }, { id: 'ekspor', l: 'Ekspor & Laporan', ik: 'download', r: SEMUA }, { id: 'riwayat', l: 'Riwayat Perubahan', ik: 'clock', r: PEN },
     { id: 'pengaturan', l: 'Pengaturan', ik: 'gear', r: SEMUA }, { id: 'pengguna', l: 'Kelola Pengguna', ik: 'shield', r: ['superadmin'] }
   ];
@@ -25,6 +25,7 @@
   APP.boleh = function (idMenu) {
     var m = MENU.filter(function (x) { return x.id === idMenu; })[0]; if (!m || !APP.S.me) return false;
     if (idMenu === 'pengaturan' || idMenu === 'pengguna') return m.r.indexOf(APP.S.me.role) >= 0;   /* tetap */
+    if (idMenu === 'presentasi') return ['dashboard', 'absensi', 'produksi', 'isu'].every(APP.izin);   /* memuat semua bidang: hanya bagi peran yang boleh membuka keempatnya */
     return APP.izin(idMenu);
   };
   APP.role = function () { return APP.S.me ? APP.S.me.role : ''; };
