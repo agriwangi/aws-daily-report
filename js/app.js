@@ -89,13 +89,18 @@
 
   /* ---------- tampilan: halaman awal & masuk ---------- */
   var LOGO = 'assets/logo.png';
-  function landing() {
-    $('#land').innerHTML = '<div class="land"><div class="nav"><img src="' + LOGO + '" alt="Agri Wangi Sentosa"><span class="grow"></span><a class="btn" href="#/masuk">Masuk</a></div>' +
+  function landingKlasik(el) {
+    el.innerHTML = '<div class="land"><div class="nav"><img src="' + LOGO + '" alt="Agri Wangi Sentosa"><span class="grow"></span><a class="btn" href="#/masuk">Masuk</a></div>' +
       '<div class="hero"><div><h1>Laporan harian kebun teh, rapi dalam satu tempat.</h1><p class="lead">AWS Daily Report mengumpulkan absensi dan produksi PT. Agri Wangi Sentosa dari Excel harian, lalu menyajikannya per orang, mandor, asisten, dan divisi — lengkap dengan penilaian otomatis serta isu dan rekomendasi yang bisa disunting.</p><div class="cta"><a class="btn" href="#/masuk">Masuk ke aplikasi</a><a class="btn sec" href="#fitur" id="keFitur">Lihat fitur</a></div></div>' +
       '<div class="mock" aria-hidden="true"><div class="m1"><div><small>Produksi</small>▮▮▮▮▯</div><div><small>Kehadiran</small>▮▮▮▮▮</div><div><small>Isu</small>▮▮▯▯▯</div></div><div class="bars">' + [40, 62, 55, 78, 70, 90, 66, 84, 72, 95, 80, 88].map(function (h) { return '<i style="height:' + h + '%"></i>'; }).join('') + '</div></div></div>' +
       '<div class="feats" id="fitur">' + [['dash', 'Dashboard menyeluruh', 'Produksi, grade, kehadiran, dan mangkir dalam satu layar — per hari, minggu, bulan, tahun, atau periode gaji 26–25.'], ['users', 'Absensi akurat', 'Dihitung dari data Excel dengan rumus yang sama; per orang, kemandoran, asisten, dan divisi.'], ['leaf', 'Produksi & grade', 'Budget, realisasi, selisih, dan komposisi Grade I–III untuk setiap mandor, asisten, dan divisi.'], ['alert', 'Isu & rekomendasi', 'Aturan penilaian otomatis dengan ambang yang dapat diubah, serta rekomendasi yang dapat disunting.'], ['upload', 'Satu Excel per hari', 'Unggah berkas hari ini, data lama ditimpa dengan aman. Tampilan tabel sama persis dengan Excel.'], ['download', 'Ekspor & email', 'Unduh PDF, PowerPoint, Excel, atau CSV, dan kirim laporan harian otomatis ke email.']].map(function (f) { return '<div class="feat"><div class="ic">' + U.ik(f[0], 24) + '</div><b>' + f[1] + '</b><span>' + f[2] + '</span></div>'; }).join('') + '</div>' +
       '<footer>© ' + new Date().getFullYear() + ' PT. Agri Wangi Sentosa · AWS Daily Report v' + w.APP_CONFIG.VERSI + '</footer></div>';
-    var k = $('#keFitur'); if (k) k.addEventListener('click', function (e) { e.preventDefault(); $('#fitur').scrollIntoView({ behavior: 'smooth' }); });
+    var k = el.querySelector('#keFitur'); if (k) k.addEventListener('click', function (e) { e.preventDefault(); el.querySelector('#fitur').scrollIntoView({ behavior: 'smooth' }); });
+  }
+  /* halaman awal: 11 model dari landing.js + Klasik bawaan; pilihan tersimpan per browser */
+  function landing() {
+    if (w.AWSL && w.AWSL.mount) w.AWSL.mount($('#land'), { logo: LOGO, versi: w.APP_CONFIG.VERSI, klasik: landingKlasik });
+    else landingKlasik($('#land'));
   }
   function masuk() {
     var siap = !!API.siapUrl();
@@ -152,6 +157,7 @@
     var bt = document.getElementById('boot'); if (bt) bt.remove();
     var login = !!APP.S.me, kunci = id + '|' + (login ? 1 : 0);
     if (paksa !== true && kunci === terakhir) return; terakhir = kunci;
+    if (w.AWSL && w.AWSL.stop) w.AWSL.stop();
     ['land', 'login', 'app'].forEach(function (x) { $('#' + x).classList.add('hide'); });
     if (!login) {
       if (id === 'masuk' || (id && id !== '' && id !== 'fitur')) { masuk(); $('#login').classList.remove('hide'); document.title = 'Masuk · AWS Daily Report'; }
