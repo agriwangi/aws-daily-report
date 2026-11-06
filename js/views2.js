@@ -8,7 +8,7 @@
   /* ============ ISU & REKOMENDASI ============ */
   V.isu = function (host) {
     APP.laman(host, { judul: 'Isu & Rekomendasi', desk: 'Temuan otomatis dari aturan penilaian. Rekomendasi dan status dapat disunting.', isi: function (body, rep) {
-      var penilai = APP.penilai(), ar = rep.aturan || (APP.S.boot && APP.S.boot.aturan) || {}, st = { level: '', aturan: '', status: '', q: '', maks: 30 }, isu = rep.isu;
+      var penilai = APP.izin('isu_edit'), ar = rep.aturan || (APP.S.boot && APP.S.boot.aturan) || {}, st = { level: '', aturan: '', status: '', q: '', maks: 30 }, isu = rep.isu;
       var hitung = function (s) { return isu.filter(function (i) { return i.status === s; }).length; };
       body.insertAdjacentHTML('beforeend', UI.kpi([{ l: 'Isu merah', v: rep.ringkasIsu.merah, kls: 'dn' }, { l: 'Isu kuning', v: rep.ringkasIsu.kuning }, { l: 'Dalam proses', v: hitung('proses') }, { l: 'Selesai', v: hitung('selesai') }]));
       var bar = document.createElement('div'); bar.className = 'bar';

@@ -13,7 +13,20 @@
   APP.ROLE_NAMA = { superadmin: 'Superadmin', admin: 'Admin', spv: 'SPV', manager: 'Manager', askep: 'Askep', asisten: 'Asisten' };
   APP.TEMA = [['tea-green', 'Tea Green', '#166534'], ['ocean-blue', 'Ocean Blue', '#1D4ED8'], ['indigo', 'Indigo', '#4338CA'], ['teal', 'Teal', '#0F766E'], ['harvest-amber', 'Harvest Amber', '#B45309'], ['slate', 'Slate', '#334155']];
   var $ = U.$;
-  APP.boleh = function (idMenu) { var m = MENU.filter(function (x) { return x.id === idMenu; })[0]; return !!(m && APP.S.me && m.r.indexOf(APP.S.me.role) >= 0); };
+  /* hak akses: boot.hak dari server (diatur Superadmin); bila belum ada, memakai bawaan di MENU */
+  APP.izin = function (k) {
+    var r = APP.role(); if (!r) return false; if (r === 'superadmin') return true;
+    var h = APP.S.boot && APP.S.boot.hak && APP.S.boot.hak[k];
+    if (h) return h.indexOf(r) >= 0;
+    var m = MENU.filter(function (x) { return x.id === k; })[0]; if (m) return m.r.indexOf(r) >= 0;
+    return PEN.indexOf(r) >= 0;   /* tindakan: bawaan = penilai */
+  };
+  APP.awal = function () { var m = MENU.filter(function (x) { return APP.boleh(x.id); })[0]; return '#/' + (m ? m.id : 'pengaturan'); };   /* halaman pertama yang boleh dibuka */
+  APP.boleh = function (idMenu) {
+    var m = MENU.filter(function (x) { return x.id === idMenu; })[0]; if (!m || !APP.S.me) return false;
+    if (idMenu === 'pengaturan' || idMenu === 'pengguna') return m.r.indexOf(APP.S.me.role) >= 0;   /* tetap */
+    return APP.izin(idMenu);
+  };
   APP.role = function () { return APP.S.me ? APP.S.me.role : ''; };
   APP.adm = function () { return ADM.indexOf(APP.role()) >= 0; };
   APP.penilai = function () { return PEN.indexOf(APP.role()) >= 0; };
@@ -115,7 +128,7 @@
       e.preventDefault(); var u = $('#lgU').value.trim(), p = $('#lgP').value, err = $('#lgErr'), b = $('#lgBtn'); err.textContent = '';
       if (!u || !p) { err.textContent = 'Nama pengguna dan kata sandi wajib diisi.'; return; }
       b.disabled = true; b.textContent = 'Memeriksa…';
-      API.call('auth.login', { username: u, password: p }).then(function (j) { API.simpanSesi(j.data.token); APP.S.me = j.data.me; APP.S.boot = j.data.boot; w.location.hash = '#/dashboard'; mulaiApp(); })
+      API.call('auth.login', { username: u, password: p }).then(function (j) { API.simpanSesi(j.data.token); APP.S.me = j.data.me; APP.S.boot = j.data.boot; w.location.hash = APP.awal(); mulaiApp(); })
         .catch(function (x) { err.textContent = x.message; b.disabled = false; b.textContent = 'Masuk'; $('#lgP').value = ''; $('#lgP').focus(); });
     });
     setTimeout(function () { $('#lgU').focus(); }, 50);
@@ -164,9 +177,9 @@
       else { landing(); $('#land').classList.remove('hide'); document.title = 'AWS Daily Report · PT. Agri Wangi Sentosa'; }
       return;
     }
-    if (!id || id === 'masuk' || id === 'fitur') { w.location.hash = '#/dashboard'; return; }
+    if (!id || id === 'masuk' || id === 'fitur') { w.location.hash = APP.awal(); return; }
     var m = MENU.filter(function (x) { return x.id === id; })[0];
-    if (!m || !APP.boleh(id)) { w.location.hash = '#/dashboard'; if (m) U.toast('Peran Anda tidak memiliki akses ke halaman itu.', 'warn'); return; }
+    if (!m || !APP.boleh(id)) { w.location.hash = APP.awal(); if (m) U.toast('Peran Anda tidak memiliki akses ke halaman itu.', 'warn'); return; }
     $('#app').classList.remove('hide');
     U.$$('a[data-id]').forEach(function (a) { a.classList.toggle('on', a.dataset.id === id); });
     $('#judul').textContent = m.l; document.title = m.l + ' · AWS Daily Report';

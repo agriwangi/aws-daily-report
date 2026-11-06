@@ -6,13 +6,13 @@
   /* ============ EKSPOR & PENGESAHAN LHP ============ */
   V.ekspor = function (host) {
     APP.laman(host, { judul: 'Ekspor & Pengesahan', desk: 'Unduh laporan, kirim lewat email, dan sahkan Laporan Harian Produksi.', filter: false, isi: function (body, rep) {
-      var penilai = APP.penilai(), lhp = null, tgl = rep.to;
+      var pEmail = APP.izin('email'), pLhp = APP.izin('lhp'), lhp = null, tgl = rep.to;
       body.insertAdjacentHTML('beforeend', '<div class="panel c2e"><div class="card"><h3>Unduh laporan</h3><p class="muted">Periode ' + U.esc(U.tglID(rep.from, true)) + (rep.from === rep.to ? '' : ' s.d. ' + U.esc(U.tglID(rep.to, true))) + '. Isi mengikuti filter yang sedang aktif.</p>' +
         '<div class="grid2"><button class="btn" data-x="pdf">' + U.ik('file', 18) + ' PDF</button><button class="btn" data-x="ppt">' + U.ik('chart', 18) + ' PowerPoint</button><button class="btn sec" data-x="xlsx">' + U.ik('table', 18) + ' Excel (semua tabel)</button><button class="btn sec" data-x="csv">' + U.ik('download', 18) + ' CSV</button></div>' +
         '<div class="field" style="margin-top:12px"><label>Bagian untuk CSV</label><select id="xBag">' + Object.keys(EX.tabel(rep)).map(function (k) { return '<option>' + U.esc(k) + '</option>'; }).join('') + '</select></div>' +
         '<p class="muted" style="font-size:12px">Untuk PDF, pilih "Simpan sebagai PDF" pada jendela cetak yang terbuka.</p></div>' +
-        (penilai ? '<div class="card"><h3>Kirim lewat email</h3><div class="field"><label>Penerima (pisahkan dengan koma)</label><input id="eTo" type="text" placeholder="nama@perusahaan.com, …"></div><div class="field"><label>Tanggal laporan</label><input id="eTgl" type="date" value="' + tgl + '"></div><button class="btn" id="eKirim">' + U.ik('mail', 18) + ' Kirim sekarang</button><p class="muted" style="font-size:12px">Kosongkan penerima untuk memakai daftar di Pengaturan.</p></div>' : '') + '</div>' +
-        (penilai ? '<div class="card" style="margin-top:16px"><h3>Pengesahan Laporan Harian Produksi</h3><div class="field" style="max-width:220px"><label>Tanggal</label><input type="date" id="lTgl" value="' + tgl + '"></div><div id="lBox">' + UI.skel() + '</div></div>' : ''));
+        (pEmail ? '<div class="card"><h3>Kirim lewat email</h3><div class="field"><label>Penerima (pisahkan dengan koma)</label><input id="eTo" type="text" placeholder="nama@perusahaan.com, …"></div><div class="field"><label>Tanggal laporan</label><input id="eTgl" type="date" value="' + tgl + '"></div><button class="btn" id="eKirim">' + U.ik('mail', 18) + ' Kirim sekarang</button><p class="muted" style="font-size:12px">Kosongkan penerima untuk memakai daftar di Pengaturan.</p></div>' : '') + '</div>' +
+        (pLhp ? '<div class="card" style="margin-top:16px"><h3>Pengesahan Laporan Harian Produksi</h3><div class="field" style="max-width:220px"><label>Tanggal</label><input type="date" id="lTgl" value="' + tgl + '"></div><div id="lBox">' + UI.skel() + '</div></div>' : ''));
 
       function ttdMeta() { var f = function (x) { return x ? x.oleh + ' · ' + U.tglID(String(x.pada).slice(0, 10), true) : ''; }; return lhp ? { disusun: f(lhp.disusun), diperiksa: f(lhp.diperiksa), disetujui: f(lhp.disetujui) } : null; }
       function sibuk(b, p) { b.disabled = true; var t = b.innerHTML; return p.then(function () { b.disabled = false; b.innerHTML = t; }, function (e) { b.disabled = false; b.innerHTML = t; U.toast(e.message || 'Gagal membuat berkas.', 'err'); }); }
@@ -24,8 +24,8 @@
         else if (x === 'ppt') sibuk(b, Promise.resolve(EX.ppt(rep, meta)));
         else if (x === 'pdf') sibuk(b, Promise.resolve(EX.pdf(rep, meta)));
       });
-      if (!penilai) return;
-      $('#eKirim', body).onclick = function () { var b = this; b.disabled = true; API.call('email.kirim', { tgl: $('#eTgl', body).value, to: $('#eTo', body).value.trim() }).then(function (j) { U.toast(j.msg, 'ok'); b.disabled = false; }).catch(function (x) { U.toast(x.message, 'err'); b.disabled = false; }); };
+      if (pEmail) $('#eKirim', body).onclick = function () { var b = this; b.disabled = true; API.call('email.kirim', { tgl: $('#eTgl', body).value, to: $('#eTo', body).value.trim() }).then(function (j) { U.toast(j.msg, 'ok'); b.disabled = false; }).catch(function (x) { U.toast(x.message, 'err'); b.disabled = false; }); };
+      if (!pLhp) return;
       var role = APP.role();
       function gambarLhp() {
         var box = $('#lBox', body), l = lhp, st = function (x, sudah) { return sudah ? '<span class="badge ok">' + U.ik('check', 14) + ' ' + U.esc(x.oleh) + ' · ' + U.waktuID(x.pada) + '</span>' : '<span class="badge">Belum</span>'; };
@@ -85,6 +85,25 @@
           API.call('pengaturan.simpan', { pengaturan: { LANDING: laNow } }).then(function (j) { U.toast(j.msg, 'ok'); b.disabled = false; if (APP.S.boot) APP.S.boot.landing = laNow; w.AWSL.remember(laNow); }).catch(function (x) { U.toast(x.message, 'err'); b.disabled = false; });
         };
       }
+      API.d('hak.get').then(function (hk) {
+        var peta = JSON.parse(JSON.stringify(hk.peta)), peran = hk.peran, grup = ['Halaman', 'Tindakan'];
+        $('#pAdm').insertAdjacentHTML('beforeend', '<div class="card" style="margin-top:16px" id="hkCard"><h3>Hak akses peran</h3><p class="muted" style="margin-top:0">Centang halaman dan tindakan yang boleh dipakai tiap peran. Superadmin selalu penuh dan tidak bisa diubah. Pengaturan (tema, kata sandi) terbuka untuk semua, Kelola Pengguna khusus Superadmin.</p><div id="hkT"></div><div class="row" style="margin-top:12px"><button class="btn" id="hkSimpan" type="button">Simpan hak akses</button><button class="btn ghost" id="hkReset" type="button">Kembalikan ke bawaan</button></div></div>');
+        function gambarHk() {
+          $('#hkT').innerHTML = '<div class="tw"><table class="t hk"><thead><tr><th>Hak</th>' + peran.map(function (r) { return '<th class="num" style="text-align:center">' + U.esc(APP.ROLE_NAMA[r] || r) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            grup.map(function (g) { return '<tr><td colspan="' + (peran.length + 1) + '" style="background:var(--surface,#f3f7f4);font-weight:700;font-size:12.5px">' + g + '</td></tr>' + hk.izin.filter(function (z) { return z.g === g; }).map(function (z) { return '<tr><td>' + U.esc(z.l) + '</td>' + peran.map(function (r) { var on = peta[z.k].indexOf(r) >= 0; return '<td style="text-align:center"><input type="checkbox" data-k="' + z.k + '" data-r="' + r + '"' + (on ? ' checked' : '') + ' aria-label="' + U.esc(z.l + ' untuk ' + (APP.ROLE_NAMA[r] || r)) + '"></td>'; }).join('') + '</tr>'; }).join(''); }).join('') + '</tbody></table></div>';
+        }
+        gambarHk();
+        $('#hkT').addEventListener('change', function (e) {
+          var c = e.target.closest('input[data-k]'); if (!c) return; var l = peta[c.dataset.k], i = l.indexOf(c.dataset.r);
+          if (c.checked && i < 0) l.push(c.dataset.r); else if (!c.checked && i >= 0) l.splice(i, 1);
+        });
+        function simpanHk(reset) {
+          var b = reset ? $('#hkReset') : $('#hkSimpan'); b.disabled = true;
+          API.call('hak.simpan', reset ? { reset: true } : { peta: peta }).then(function (j) { U.toast(j.msg, 'ok'); b.disabled = false; peta = j.data.peta; if (APP.S.boot) APP.S.boot.hak = JSON.parse(JSON.stringify(peta)); gambarHk(); }).catch(function (x) { U.toast(x.message, 'err'); b.disabled = false; });
+        }
+        $('#hkSimpan').onclick = function () { simpanHk(false); };
+        $('#hkReset').onclick = function () { U.konfirmasi('Kembalikan hak akses ke bawaan?', 'Semua centang kembali seperti pengaturan awal aplikasi.', 'Kembalikan').then(function (ok) { if (ok) simpanHk(true); }); };
+      }).catch(function (e) { U.toast(e.message, 'err'); });
       $('#sSimpan').onclick = function () {
         var b = this, aturan = {}; U.$$('#pAdm tr[data-k]').forEach(function (tr) { aturan[tr.dataset.k] = { kuning: tr.querySelector('[data-f=kuning]').value, merah: tr.querySelector('[data-f=merah]').value, aktif: tr.querySelector('[data-f=aktif]').checked }; });
         b.disabled = true;

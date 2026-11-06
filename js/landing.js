@@ -1,4 +1,4 @@
-/* AWS Daily Report — landing page 11 model (v1.0.9)
+/* AWS Daily Report — landing page 11 model (v1.0.10)
  * BERKAS INI DIBANGKITKAN oleh build_landing.js dari model landing situs Sentosa.
  * Jangan disunting langsung; ubah landing_content.js / landing_mount.js lalu bangkitkan ulang. */
 /* ===== Ilustrasi bawaan (SVG dihasilkan kode) — pengganti foto sampai admin mengunggah foto sendiri ===== */
