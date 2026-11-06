@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.5 — halaman: Dashboard, Absensi, Produksi, Rekap */
+/* AWS Daily Report v1.0.12 — halaman: Dashboard, Absensi, Produksi, Rekap */
 (function (w) {
   'use strict';
   var V = APP.V, $ = U.$;
@@ -74,7 +74,8 @@
         ['kode', 'Kode absensi', function (h) {
           var g = grid(h); panel(g, 'a_kode', 'Sebaran kode (hari)', function () { return SPEC.kodeAll(rep); }, 'donut');
           var c = document.createElement('div'); c.className = 'card'; c.innerHTML = '<h3>Keterangan kode</h3>'; g.appendChild(c); var kc = rep.kodeCount || {};
-          UI.tabel(c, [{ k: 'kode', l: 'Kode', f: function (v) { return U.kodeBadge(v); } }, { k: 'ket', l: 'Keterangan' }, { k: 'n', l: 'Jumlah hari', num: 1 }], Object.keys(kc).map(function (x) { return { kode: x, ket: GRID.kodeKet[x] || 'Kode baru (terdeteksi otomatis)', n: kc[x] }; }), { cari: false, urut: 'n' });
+          UI.tabel(c, [{ k: 'kode', l: 'Kode', f: function (v) { return U.kodeBadge(v); } }, { k: 'ket', l: 'Keterangan' }, { k: 'n', l: 'Jumlah hari', num: 1 }], Object.keys(kc).map(function (x) { return { kode: x, ket: U.kodeNama(x) || GRID.kodeKet[x] || 'Kode baru (terdeteksi otomatis)', n: kc[x] }; }), { cari: false, urut: 'n' });
+          g.insertAdjacentHTML('beforeend', U.legendaKode());
           if (Object.keys(rep.kodeBaru || {}).length) c.insertAdjacentHTML('beforeend', '<p class="muted">Kode baru di luar daftar standar terdeteksi dan disertakan otomatis.</p>');
         }],
         ['excel', 'Tampilan Excel', function (h) { cerminPilih(h, 'ABS'); }]

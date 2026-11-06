@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.0 — komponen tampilan: tabel, KPI, kerangka muat, keadaan kosong */
+/* AWS Daily Report v1.0.12 — komponen tampilan: tabel, KPI, kerangka muat, keadaan kosong */
 (function (w) {
   'use strict';
   var UI = {};
@@ -33,39 +33,102 @@
       tbody.innerHTML = sl.length ? sl.map(function (r) { return '<tr' + (opsi.kelasBaris ? ' class="' + (opsi.kelasBaris(r) || '') + '"' : '') + '>' + kolom.map(function (c) { var v = nilai(r, c); var h = c.f ? c.f(v, r) : (c.num ? U.nf(v, c.d || 0) : U.esc(v === undefined || v === null ? '' : v)); return '<td class="' + (c.num ? 'num' : '') + '">' + h + '</td>'; }).join('') + '</tr>'; }).join('') : '<tr><td colspan="' + kolom.length + '"><div class="empty" style="padding:24px">' + U.esc(opsi.kosong || 'Tidak ada data.') + '</div></td></tr>';
       if (info) info.textContent = U.nf(n) + ' baris';
       var hm = Math.max(1, Math.ceil(n / st.ukuran));
-      pager.innerHTML = n > 10 ? '<span class="muted">Baris per halaman</span><select style="width:auto;height:30px">' + [10, 25, 50, 100].map(function (u) { return '<option' + (u === st.ukuran ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select><button class="btn sm ghost" data-p="-1"' + (hal === 0 ? ' disabled' : '') + '>‹ Sebelumnya</button><span>' + (hal + 1) + ' / ' + hm + '</span><button class="btn sm ghost" data-p="1"' + (hal >= hm - 1 ? ' disabled' : '') + '>Berikutnya ›</button>' : '';
+      pager.innerHTML = n > 10 ? UI.pager(hal + 1, hm, st.ukuran, [10, 25, 50, 100]) : '';
       if (opsi.setelah) opsi.setelah(host, sl);
     }
     thead.addEventListener('click', function (e) { var th = e.target.closest('th'); if (!th) return; var k = th.dataset.k; if (st.urut === k) st.arah = -st.arah; else { st.urut = k; st.arah = -1; } st.hal = 0; gambar(); });
-    pager.addEventListener('click', function (e) { var b = e.target.closest('button[data-p]'); if (b) { st.hal += +b.dataset.p; gambar(); } });
+    pager.addEventListener('click', function (e) { var b = e.target.closest('button[data-g]'); if (b && !b.disabled) { st.hal = +b.dataset.g - 1; gambar(); } });
     pager.addEventListener('change', function (e) { if (e.target.tagName === 'SELECT') { st.ukuran = +e.target.value; st.hal = 0; gambar(); } });
     if (inp) inp.addEventListener('input', U.debounce(function () { st.q = inp.value.trim(); st.hal = 0; gambar(); }, 200));
     gambar();
     return { set: function (b) { st.baris = b || []; st.hal = 0; gambar(); }, st: st };
   };
-  /* tampilan sama persis Excel (cermin) */
-  var KODE = /^(K|KL|H1|H2|S1|P1|P3|P4|C|HB|M|MG|OUT)$/;
-  UI.sel = function (v, ds) {
+  /* penomoran halaman (hal & hm berbasis 1): Baris per halaman [..]  ‹ Sebelumnya 1 … 4 [5] 6 … 13 Berikutnya › */
+  UI.pager = function (hal, hm, uk, daftarUk) {
+    var set = {}, i; set[1] = 1; set[hm] = 1; for (i = hal - 1; i <= hal + 1; i++) if (i >= 1 && i <= hm) set[i] = 1;
+    var ns = Object.keys(set).map(Number).sort(function (a, b) { return a - b; }), nomor = '', prev = 0;
+    ns.forEach(function (n) { if (prev && n - prev > 1) nomor += '<span class="gap" aria-hidden="true">…</span>'; nomor += '<button type="button" class="pg' + (n === hal ? ' on' : '') + '" data-g="' + n + '" aria-label="Halaman ' + n + '"' + (n === hal ? ' aria-current="page"' : '') + '>' + n + '</button>'; prev = n; });
+    return '<label class="pg-uk"><span class="muted">Baris per halaman</span><select aria-label="Baris per halaman">' + daftarUk.map(function (u) { return '<option' + (u === uk ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select></label>' +
+      '<span class="pgr"><button type="button" class="pg wide" data-g="' + (hal - 1) + '"' + (hal <= 1 ? ' disabled' : '') + ' aria-label="Halaman sebelumnya">‹<span class="tx"> Sebelumnya</span></button><span class="nums">' + nomor + '</span><span class="ring" aria-live="polite">' + hal + ' / ' + hm + '</span><button type="button" class="pg wide" data-g="' + (hal + 1) + '"' + (hal >= hm ? ' disabled' : '') + ' aria-label="Halaman berikutnya"><span class="tx">Berikutnya </span>›</button></span>';
+  };
+  /* tampilan sama persis Excel (cermin) — berhalaman; ukuran font & kolom menyesuaikan lebar layar */
+  var KODE = /^(K|KL|H1|H2|S1|P1|P3|P4|C|HB|M|MG|OUT|NEW)$/;
+  UI.sel = function (v, ds, mentah) {
+    if (ds === 'ABS') mentah = true; /* absensi: angka kecil/penanda (mis. tahun 2026) — jangan diberi titik ribuan */
     if (v === null || v === undefined || v === '') return '';
-    if (typeof v === 'number') return U.esc(Number.isInteger(v) ? U.nf(v) : (Math.round(v * 10000) / 10000).toLocaleString('id-ID', { maximumFractionDigits: 4 }));
+    if (typeof v === 'number') { if (mentah) { var bulat = Math.abs(v - Math.round(v)) < 1e-6; return U.esc(bulat ? String(Math.round(v)) : String(Math.round(v * 10000) / 10000).replace('.', ',')); } if (Number.isInteger(v)) return U.esc(U.nf(v)); return U.esc((Math.round(v * 10000) / 10000).toLocaleString('id-ID', { maximumFractionDigits: 4 })); }
     var s = String(v); if (ds === 'ABS' && KODE.test(s)) return U.kodeBadge(s);
     return U.esc(s);
   };
+  var CM_UK = [25, 50, 100, 200];
+  function kosongSel(v) { return v === null || v === undefined || v === ''; }
+  function jmlIsi(r) { var k = 0; for (var i = 0; i < r.length; i++) if (!kosongSel(r[i])) k++; return k; }
+  /* baris judul/kepala: teks meluber ke sel kosong di kanannya (seperti Excel) agar tidak melebarkan satu kolom */
+  function barisKepala(r, kls) {
+    if (!jmlIsi(r)) return '<tr class="xl-blank' + (kls ? ' ' + kls : '') + '"><th colspan="' + Math.max(1, r.length) + '"></th></tr>';
+    var h = '<tr' + (kls ? ' class="' + kls + '"' : '') + '>';
+    for (var i = 0; i < r.length; i++) {
+      var c = r[i], span = 1;
+      if (typeof c === 'string' && c !== '') while (i + span < r.length && kosongSel(r[i + span])) span++;
+      h += '<th' + (span > 1 ? ' colspan="' + span + '"' : '') + '>' + UI.sel(c, null, true) + '</th>';
+      i += span - 1;
+    }
+    return h + '</tr>';
+  }
   UI.cermin = function (host, dataset, periode) {
+    var tiket = host._cmTiket = (host._cmTiket || 0) + 1;
+    var uk0 = +U.baca('cm_uk', '50'), st = { hal: 1, uk: CM_UK.indexOf(uk0) >= 0 ? uk0 : 50, cache: {}, semua: null, sibuk: false };
+    var terbatas = !!(w.APP && w.APP.role && /^(asisten|askep)$/.test(w.APP.role()));
+    var kok, wrap, thead, tbody;
     host.innerHTML = '<div class="skel" style="height:240px"></div>';
-    var muat = function (offset, tampung) {
-      return API.d('cermin.get', { dataset: dataset, periode: periode, offset: offset, limit: 200 });
-    };
-    muat(0).then(function (d) {
-      var baris = d.rows.slice(), head = d.head, total = d.totalData, off = 200;
-      function gambar() {
-        var html = '<div class="muted" style="margin-bottom:8px">Tampilan sama persis dengan berkas Excel · ' + U.nf(total) + ' baris data · ' + U.nf(d.labels.length) + ' kolom</div><div class="tw card flush"><table class="t xl"><thead>' + head.map(function (r) { return '<tr>' + r.map(function (c) { return '<th>' + UI.sel(c) + '</th>'; }).join('') + '</tr>'; }).join('') + '</thead><tbody>' + baris.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + UI.sel(c, dataset) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
-        if (off < total) html += '<div class="center" style="margin-top:12px"><button class="btn sec" id="lagiBtn">Muat 200 baris berikutnya (' + U.nf(Math.min(off, total)) + ' dari ' + U.nf(total) + ')</button></div>';
-        host.innerHTML = html;
-        var b = U.$('#lagiBtn', host); if (b) b.addEventListener('click', function () { b.disabled = true; b.textContent = 'Memuat…'; muat(off).then(function (n) { baris = baris.concat(n.rows); off += 200; gambar(); }).catch(function (e) { U.toast(e.message, 'err'); b.disabled = false; }); });
-      }
-      gambar();
-    }).catch(function (e) { UI.galat(host, e); });
+    function blok(offset, limit) { return API.d('cermin.get', { dataset: dataset, periode: periode, offset: offset, limit: limit }); }
+    /* peran terbatas: penyaringan dilakukan server per blok, jadi semua blok diambil agar jumlah halaman tepat */
+    function ambilSemua() {
+      if (st.semua) return Promise.resolve(st.semua);
+      var rows = [], d0 = null;
+      function lanjut(off) { return blok(off, 500).then(function (d) { d0 = d0 || d; rows = rows.concat(d.rows); return off + 500 < d.totalData ? lanjut(off + 500) : { head: d0.head, labels: d0.labels, rows: rows }; }); }
+      return lanjut(0).then(function (r) { st.semua = r; return r; });
+    }
+    function ambil(hal) {
+      var uk = st.uk;
+      if (terbatas) return ambilSemua().then(function (a) { return { head: a.head, labels: a.labels, total: a.rows.length, rows: a.rows.slice((hal - 1) * uk, hal * uk) }; });
+      var kunci = uk + ':' + hal; if (st.cache[kunci]) return Promise.resolve(st.cache[kunci]);
+      return blok((hal - 1) * uk, uk).then(function (d) { var r = { head: d.head, labels: d.labels, total: d.totalData, rows: d.rows }; if (Object.keys(st.cache).length > 40) st.cache = {}; st.cache[kunci] = r; return r; });
+    }
+    function tataSticky() { /* baris kepala bertingkat: tiap baris menempel tepat di bawah baris sebelumnya */
+      var top = 0; U.$$('tr.stk', thead).forEach(function (tr) { var cs = tr.children; for (var i = 0; i < cs.length; i++) cs[i].style.top = top + 'px'; top += tr.getBoundingClientRect().height; });
+    }
+    function isiHalaman(d) {
+      var uk = st.uk, hm = Math.max(1, Math.ceil(d.total / uk)), n = d.head.length ? Math.max(1, d.head[0].length) : 1;
+      tbody.innerHTML = d.rows.length ? d.rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td' + (typeof c === 'number' ? ' class="num"' : '') + '>' + UI.sel(c, dataset) + '</td>'; }).join('') + '</tr>'; }).join('') : '<tr><td colspan="' + n + '"><div class="empty" style="padding:24px">' + (d.total ? 'Tidak ada baris pada halaman ini.' : 'Belum ada baris data pada berkas ini.') + '</div></td></tr>';
+      var awal = (st.hal - 1) * uk + 1, tx = d.total ? 'Menampilkan ' + U.nf(awal) + '–' + U.nf(awal + Math.max(0, d.rows.length - 1)) + ' dari ' + U.nf(d.total) + ' baris' : 'Belum ada baris data';
+      U.$$('[data-ket]', kok).forEach(function (x) { x.textContent = tx; });
+      var p = d.total > CM_UK[0] ? UI.pager(st.hal, hm, uk, CM_UK) : '';
+      U.$$('.xl-pg', kok).forEach(function (x) { x.innerHTML = p; });
+      tataSticky();
+    }
+    function pindah(hal) {
+      if (st.sibuk) return; st.sibuk = true; wrap.classList.add('muat'); wrap.setAttribute('aria-busy', 'true');
+      ambil(hal).then(function (d) {
+        if (host._cmTiket !== tiket) return;
+        st.hal = hal; isiHalaman(d); wrap.scrollTop = 0;
+        var t = U.$('.xl-top', kok); if (t && t.scrollIntoView && t.getBoundingClientRect().top < 64) t.scrollIntoView({ block: 'start' });
+      }).catch(function (e) { U.toast((e && e.message) || 'Gagal memuat halaman.', 'err'); }).then(function () { st.sibuk = false; wrap.classList.remove('muat'); wrap.removeAttribute('aria-busy'); });
+    }
+    ambil(1).then(function (d) {
+      if (host._cmTiket !== tiket) return;
+      var head = d.head || [], nKol = (d.labels && d.labels.length) || (head[0] ? head[0].length : 0), awalStk = -1;
+      head.forEach(function (r, i) { if (awalStk < 0 && jmlIsi(r) >= 4) awalStk = i; });
+      host.innerHTML = '<div class="xl-kok"><div class="xl-top"><div class="muted">Tampilan sama persis dengan berkas Excel · ' + U.nf(d.total) + ' baris data · ' + U.nf(nKol) + ' kolom</div></div>' +
+        '<div class="xl-bar"><span class="muted" data-ket></span><div class="pager xl-pg"></div></div>' +
+        '<div class="tw card flush xlw" tabindex="0" role="region" aria-label="Tabel hasil Excel; geser ke samping untuk melihat kolom lain"><table class="t xl"><thead>' + head.map(function (r, i) { return barisKepala(r, awalStk >= 0 && i >= awalStk ? 'stk' : ''); }).join('') + '</thead><tbody></tbody></table></div>' +
+        '<div class="xl-bar"><span class="muted" data-ket></span><div class="pager xl-pg"></div></div></div>';
+      kok = host.firstChild; wrap = U.$('.xlw', kok); thead = U.$('thead', kok); tbody = U.$('tbody', kok);
+      kok.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('button[data-g]'); if (b && !b.disabled) pindah(+b.dataset.g); });
+      kok.addEventListener('change', function (e) { var s = e.target; if (s && s.tagName === 'SELECT' && s.closest('.pg-uk')) { st.uk = +s.value; U.simpan('cm_uk', String(st.uk)); st.cache = {}; st.hal = 1; pindah(1); } });
+      var ukur = U.debounce(function () { if (!document.body.contains(kok)) { w.removeEventListener('resize', ukur); return; } tataSticky(); }, 150); w.addEventListener('resize', ukur);
+      st.hal = 1; isiHalaman(d);
+    }).catch(function (e) { if (host._cmTiket === tiket) UI.galat(host, e); });
   };
   w.UI = UI;
 })(window);

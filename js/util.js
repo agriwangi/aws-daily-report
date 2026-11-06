@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.0 — fungsi bantu umum */
+/* AWS Daily Report v1.0.12 — fungsi bantu umum */
 (function (w) {
   'use strict';
   var U = {};
@@ -92,5 +92,26 @@
   };
   U.ik = function (n, ukuran) { return '<svg viewBox="0 0 24 24" width="' + (ukuran || 20) + '" height="' + (ukuran || 20) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (IK[n] || '') + '</svg>'; };
   U.kodeBadge = function (k) { return '<span class="kode k-' + U.esc(k) + '">' + U.esc(k) + '</span>'; };
+  // v1.0.12 — Daftar kode absensi resmi (sumber tunggal, hanya tampilan; perhitungan tidak berubah)
+  U.KODE_DAFTAR = [
+    { g: 'I', gn: 'HK dibayar', items: [['K', 'Kerja'], ['H1', 'Cuti Haid (diberikan hak cuti 2 hari)'], ['H2', 'Cuti Hamil (diberikan 3 bulan sebelum melahirkan)'], ['S1', 'Sakit'], ['P3', 'Izin Khitanan / Pernikahan / Pembaktisan / Kematian'], ['P4', 'Izin Pemerintahan (Pembuatan SIM/KK/KTP)'], ['C', 'Cuti Tahunan'], ['HB', 'Hari Besar']] },
+    { g: 'II', gn: 'HK tidak dibayar', items: [['P1', 'Izin kepentingan pribadi (Tidak dibayar)'], ['M', 'Mangkir'], ['MG', 'Minggu'], ['OUT', 'Keluar / resign'], ['NEW', 'Karyawan baru / masa training']] }
+  ];
+  U.KODE_EXTRA = { KL: 'Kerja lembur (tambahan di luar daftar resmi)' };
+  U.kodeNama = function (k) {
+    for (var i = 0; i < U.KODE_DAFTAR.length; i++) for (var j = 0; j < U.KODE_DAFTAR[i].items.length; j++) if (U.KODE_DAFTAR[i].items[j][0] === k) return U.KODE_DAFTAR[i].items[j][1];
+    return U.KODE_EXTRA[k] || '';
+  };
+  U.kodeGrup = function (k) {
+    for (var i = 0; i < U.KODE_DAFTAR.length; i++) for (var j = 0; j < U.KODE_DAFTAR[i].items.length; j++) if (U.KODE_DAFTAR[i].items[j][0] === k) return U.KODE_DAFTAR[i].g;
+    return '';
+  };
+  U.legendaKode = function () {
+    return '<div class="card kode-legenda"><h3>Daftar kode absensi</h3>' + U.KODE_DAFTAR.map(function (G) {
+      return '<div class="kl-grup"><div class="kl-judul">' + G.g + '. ' + U.esc(G.gn) + '</div>' + G.items.map(function (it) {
+        return '<div class="kl-baris">' + U.kodeBadge(it[0]) + '<span>' + U.esc(it[1]) + '</span></div>';
+      }).join('') + '</div>';
+    }).join('') + '</div>';
+  };
   w.U = U;
 })(window);

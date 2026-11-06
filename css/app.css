@@ -31,7 +31,8 @@ label{display:block;font-weight:600;font-size:13px;margin-bottom:6px}.field{marg
 .badge.ok{background:#DCFCE7;color:#166534}.badge.warn{background:#FEF3C7;color:#92400E}.badge.bad{background:#FEE2E2;color:#991B1B}.badge.info{background:#DBEAFE;color:#1E40AF}
 [data-mode="gelap"] .badge.ok{background:#14532D;color:#BBF7D0}[data-mode="gelap"] .badge.warn{background:#78350F;color:#FDE68A}[data-mode="gelap"] .badge.bad{background:#7F1D1D;color:#FECACA}[data-mode="gelap"] .badge.info{background:#1E3A8A;color:#BFDBFE}
 .kode{display:inline-block;min-width:26px;text-align:center;border-radius:6px;padding:1px 6px;font-size:12px;font-weight:700;color:#fff;background:#64748B}
-.k-K{background:#16A34A}.k-MG{background:#94A3B8}.k-HB{background:#2563EB}.k-M{background:#DC2626}.k-C{background:#D97706}.k-S1{background:#EA580C}.k-H1,.k-H2{background:#0D9488}.k-P1,.k-P3,.k-P4{background:#7C3AED}.k-KL{background:#4F46E5}.k-OUT{background:#334155}
+.k-K{background:#16A34A}.k-MG{background:#94A3B8}.k-HB{background:#2563EB}.k-M{background:#DC2626}.k-C{background:#D97706}.k-S1{background:#EA580C}.k-H1,.k-H2{background:#0D9488}.k-P1,.k-P3,.k-P4{background:#7C3AED}.k-KL{background:#4F46E5}.k-OUT{background:#334155}.k-NEW{background:#0891B2}
+.kode-legenda .kl-grup{margin-top:10px}.kode-legenda .kl-judul{font-weight:700;font-size:13px;margin-bottom:6px}.kode-legenda .kl-baris{display:flex;gap:10px;align-items:flex-start;padding:4px 0;font-size:13px}.kode-legenda .kl-baris .kode{flex:0 0 auto;min-width:34px}
 /* tata letak */
 #app{display:flex;min-height:100vh}
 .side{width:232px;background:var(--sidebar);color:var(--sidebar-text);position:fixed;inset:0 auto 0 0;display:flex;flex-direction:column;z-index:40;transition:transform .2s}
