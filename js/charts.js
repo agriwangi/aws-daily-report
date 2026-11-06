@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.0 — 24 jenis grafik (ECharts). Satu model data, banyak tampilan.
+/* AWS Daily Report v1.0.6 — 24 jenis grafik (ECharts). Satu model data, banyak tampilan.
    spec = { cats:[], series:[{name,data:[]}], satuan:'kg', warna:[...], target:[...] } */
 (function (w) {
   'use strict';
@@ -130,13 +130,30 @@
 
   CH.opsi = function (jenis, spec) {
     var t = tema(), o = dasar(t, spec); (B[jenis] || B.bar)(t, spec, o); if (spec.satuan && o.yAxis && !Array.isArray(o.yAxis) && !o.yAxis.name && ['line', 'area', 'bar', 'stacked', 'step', 'waterfall'].indexOf(jenis) >= 0) o.yAxis.name = spec.satuan, o.yAxis.nameTextStyle = { color: t.muted, fontSize: 11, align: 'left' };
+    semuaLabel(o);
     return o;
   };
+  /* tampilkan SEMUA nama pada sumbu kategori (tidak ada yang disembunyikan): putar bila banyak, bungkus bila panjang */
+  var TGL = /^\d{4}-\d{2}-\d{2}$/;
+  function semuaLabel(o) {
+    ['xAxis', 'yAxis'].forEach(function (k) {
+      [].concat(o[k] || []).forEach(function (a) {
+        if (!a || a.type !== 'category' || !a.data || !a.data.length) return;
+        if (a.data.every(function (v) { return TGL.test(String(v)); })) return;   // sumbu tanggal harian: biarkan otomatis
+        var n = a.data.length, al = a.axisLabel = a.axisLabel || {};
+        al.interval = 0; al.hideOverlap = false;
+        if (k === 'xAxis') { al.rotate = n > 14 ? 60 : n > 5 ? 40 : 0; al.fontSize = n > 14 ? 10 : 11; al.width = al.rotate ? 130 : Math.max(60, Math.floor(420 / n)); al.overflow = al.rotate ? 'none' : 'break'; }
+        else { al.width = 150; al.overflow = 'break'; al.fontSize = n > 18 ? 10 : 11; }
+        o._nKat = Math.max(o._nKat || 0, k === 'yAxis' ? n : 0);
+      });
+    });
+  }
   /* render ke elemen */
   CH.render = function (el, jenis, spec) {
     if (!w.echarts || !el) return null;
     var c = echarts.getInstanceByDom(el); if (c) c.dispose();
-    c = echarts.init(el, null, { renderer: 'canvas' }); c.setOption(CH.opsi(jenis, spec), true);
+    var op = CH.opsi(jenis, spec); if (op._nKat) el.style.minHeight = Math.max(300, op._nKat * (op._nKat > 18 ? 20 : 26) + 70) + 'px';
+    c = echarts.init(el, null, { renderer: 'canvas' }); delete op._nKat; c.setOption(op, true);
     if (w.ResizeObserver) { var ro = new ResizeObserver(function () { try { c.resize(); } catch (e) {} }); ro.observe(el); c._ro = ro; }
     return c;
   };
