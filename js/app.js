@@ -88,7 +88,7 @@
   };
 
   /* ---------- tampilan: halaman awal & masuk ---------- */
-  var LOGO = 'assets/logo.png';
+  var LOGO = 'assets/logo.png'; APP.LOGO = LOGO;
   function landingKlasik(el) {
     el.innerHTML = '<div class="land"><div class="nav"><img src="' + LOGO + '" alt="Agri Wangi Sentosa"><span class="grow"></span><a class="btn" href="#/masuk">Masuk</a></div>' +
       '<div class="hero"><div><h1>Laporan harian kebun teh, rapi dalam satu tempat.</h1><p class="lead">AWS Daily Report mengumpulkan absensi dan produksi PT. Agri Wangi Sentosa dari Excel harian, lalu menyajikannya per orang, mandor, asisten, dan divisi — lengkap dengan penilaian otomatis serta isu dan rekomendasi yang bisa disunting.</p><div class="cta"><a class="btn" href="#/masuk">Masuk ke aplikasi</a><a class="btn sec" href="#fitur" id="keFitur">Lihat fitur</a></div></div>' +
@@ -97,9 +97,9 @@
       '<footer>© ' + new Date().getFullYear() + ' PT. Agri Wangi Sentosa · AWS Daily Report v' + w.APP_CONFIG.VERSI + '</footer></div>';
     var k = el.querySelector('#keFitur'); if (k) k.addEventListener('click', function (e) { e.preventDefault(); el.querySelector('#fitur').scrollIntoView({ behavior: 'smooth' }); });
   }
-  /* halaman awal: 11 model dari landing.js + Klasik bawaan; pilihan tersimpan per browser */
+  /* halaman awal: 11 model dari landing.js + Klasik bawaan; dipilih superadmin di Pengaturan (boot.landing) */
   function landing() {
-    if (w.AWSL && w.AWSL.mount) w.AWSL.mount($('#land'), { logo: LOGO, versi: w.APP_CONFIG.VERSI, klasik: landingKlasik });
+    if (w.AWSL && w.AWSL.mount) w.AWSL.mount($('#land'), { logo: LOGO, versi: w.APP_CONFIG.VERSI, klasik: landingKlasik, boot: APP.S.boot && APP.S.boot.landing });
     else landingKlasik($('#land'));
   }
   function masuk() {
@@ -192,7 +192,7 @@
     if (w.matchMedia) w.matchMedia('(prefers-color-scheme: dark)').addEventListener && w.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (U.baca('mode', '') === 'sistem') { APP.terapkanTema(); CH.gambarUlang(); } });
     if (!API.siapUrl()) { rute(true); return; }
     if (!API.token) rute(true);   /* tanpa sesi: tampilkan landing/login SEGERA, jangan menunggu server */
-    API.d('app.boot', {}, { diam: true, timeout: 25000 }).then(function (b) { APP.S.boot = b; APP.terapkanTema(); }).catch(function () {});
+    API.d('app.boot', {}, { diam: true, timeout: 25000 }).then(function (b) { APP.S.boot = b; APP.terapkanTema(); if (w.AWSL && b && b.landing) { var lama = w.AWSL.choice(); w.AWSL.remember(b.landing); if (!APP.S.me && !$('#land').classList.contains('hide') && w.AWSL.choice(b.landing) !== lama) landing(); } }).catch(function () {});
     if (API.token) API.d('auth.me', {}, { diam: true, timeout: 30000 }).then(function (d) { APP.S.me = d.me; APP.S.boot = d.boot; mulaiApp(); }).catch(function () { API.simpanSesi(''); rute(true); });
   }
   w.APP = APP; document.addEventListener('DOMContentLoaded', init);

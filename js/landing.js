@@ -1,4 +1,4 @@
-/* AWS Daily Report — landing page 11 model (v1.0.8)
+/* AWS Daily Report — landing page 11 model (v1.0.9)
  * BERKAS INI DIBANGKITKAN oleh build_landing.js dari model landing situs Sentosa.
  * Jangan disunting langsung; ubah landing_content.js / landing_mount.js lalu bangkitkan ulang. */
 /* ===== Ilustrasi bawaan (SVG dihasilkan kode) — pengganti foto sampai admin mengunggah foto sendiri ===== */
@@ -531,12 +531,15 @@
   var KEY = 'awsl.model';
   var TARGET = { fitur: '.feat', modul: '.prod', alur: '.steps', faq: '.faq' };
   function valid(k) { return k === 'klasik' || AWS.MODELS.some(function (m) { return m.k === k; }); }
-  AWS.choice = function () {
-    var k = ''; try { k = localStorage.getItem(KEY) || ''; } catch (e) { }
+  /* urutan: pengaturan global dari server (boot.landing) -> salinan terakhir di browser -> APP_CONFIG.LANDING -> klasik */
+  AWS.choice = function (fromBoot) {
+    var k = fromBoot || '';
+    if (!valid(k)) { try { k = localStorage.getItem(KEY) || ''; } catch (e) { } }
     if (!valid(k)) k = (window.APP_CONFIG && window.APP_CONFIG.LANDING) || '';
     return valid(k) ? k : 'klasik';
   };
-  AWS.choose = function (k) { if (valid(k)) { try { localStorage.setItem(KEY, k); } catch (e) { } } };
+  AWS.remember = function (k) { if (valid(k)) { try { localStorage.setItem(KEY, k); } catch (e) { } } };
+  AWS.list = function () { return [KLASIK].concat(AWS.MODELS); };
 
   function stopTimers() { S.timers.forEach(clearInterval); S.timers = []; }
   AWS.stop = stopTimers;
@@ -549,12 +552,13 @@
       }, 5200));
     });
   }
-  function bind(sr) {
+  function bind(sr, lock) {
     sr.addEventListener('click', function (e) {
       var site = sr.querySelector('.site');
       if (e.target.closest('[data-act="menu"]')) { if (site) site.classList.toggle('nv-open'); return; }
       var a = e.target.closest('a'); if (!a) return;
       var h = a.getAttribute('href') || '';
+      if (lock && h.indexOf('#/') === 0 && h !== '#/' && h.indexOf('#/s/') !== 0) { e.preventDefault(); return; }
       if (h === '#/' || h.indexOf('#/s/') === 0) {
         e.preventDefault(); if (site) site.classList.remove('nv-open');
         var t = h === '#/' ? null : sr.querySelector(TARGET[h.slice(4)] || '.none');
@@ -563,39 +567,10 @@
     });
   }
 
-  function sw(c) { return c.map(function (x) { return '<i style="background:' + esc(x) + '"></i>'; }).join(''); }
-  var docBound = false;
-  function picker(cur, redo) {
-    var items = [KLASIK].concat(AWS.MODELS), now = items.filter(function (x) { return x.k === cur; })[0] || KLASIK;
-    var w = document.createElement('div'); w.className = 'lp-pick';
-    w.innerHTML = '<button type="button" class="lp-fab" aria-haspopup="dialog" aria-expanded="false"><span class="lp-sw">' + sw(now.c) + '</span><span>Ganti tampilan</span></button>' +
-      '<div class="lp-pn" role="dialog" aria-label="Pilih tampilan halaman awal" hidden><div class="lp-h"><b>Pilih tampilan</b><button type="button" class="lp-x" aria-label="Tutup">×</button></div>' +
-      '<p class="lp-s">' + items.length + ' pilihan. Pilihan tersimpan di browser ini.</p><div class="lp-l">' +
-      items.map(function (m) {
-        var on = m.k === cur;
-        return '<button type="button" class="lp-o' + (on ? ' on' : '') + '" data-k="' + esc(m.k) + '" aria-pressed="' + on + '"><span class="lp-sw">' + sw(m.c) + '</span><span class="lp-t"><b>' + esc(m.n) + '</b><small>' + esc(m.d) + '</small></span>' + (on ? '<span class="lp-ck" aria-hidden="true">✓</span>' : '') + '</button>';
-      }).join('') + '</div></div>';
-    var fab = w.querySelector('.lp-fab'), pn = w.querySelector('.lp-pn');
-    function buka(b) { pn.hidden = !b; fab.setAttribute('aria-expanded', String(!!b)); if (b) { var on = pn.querySelector('.lp-o.on'); if (on) on.focus(); } else fab.focus(); }
-    fab.addEventListener('click', function () { buka(pn.hidden); });
-    w.querySelector('.lp-x').addEventListener('click', function () { buka(false); });
-    pn.addEventListener('click', function (e) {
-      var o = e.target.closest('.lp-o'); if (!o) return;
-      var k = o.getAttribute('data-k'); if (k === cur) { buka(false); return; }
-      AWS.choose(k); redo();
-    });
-    if (!docBound) {
-      docBound = true;
-      document.addEventListener('keydown', function (e) { if (e.key !== 'Escape') return; var p = document.querySelector('.lp-pn:not([hidden])'); if (p) { p.hidden = true; var f = document.querySelector('.lp-fab'); if (f) { f.setAttribute('aria-expanded', 'false'); f.focus(); } } });
-      document.addEventListener('click', function (e) { var p = document.querySelector('.lp-pn:not([hidden])'); if (p && !e.target.closest('.lp-pick')) { p.hidden = true; var f = document.querySelector('.lp-fab'); if (f) f.setAttribute('aria-expanded', 'false'); } });
-    }
-    return w;
-  }
-
   /* land: elemen #land; o = { logo, versi, klasik(el) } — klasik menggambar tampilan bawaan aplikasi */
   AWS.mount = function (land, o) {
     o = o || {}; stopTimers();
-    var k = AWS.choice(); land.innerHTML = '';
+    var k = o.model && valid(o.model) ? o.model : AWS.choice(o.boot); land.innerHTML = '';
     function klasik() { k = 'klasik'; if (o.klasik) o.klasik(land); }
     if (k === 'klasik') klasik();
     else {
@@ -604,11 +579,30 @@
         var host = document.createElement('div'); host.className = 'lp-host';
         var sr = host.attachShadow({ mode: 'open' });
         sr.innerHTML = '<style>' + AWS.CSS + '</style>' + AWS.renderPage(AWS.config(o.logo, o.versi), AWS.page(k), { cur: '#/p/beranda' });
-        land.appendChild(host); bind(sr); startBehaviors(sr);
+        land.appendChild(host); bind(sr, o.lock); startBehaviors(sr);
       } catch (e) { if (window.console) console.error('Landing model gagal, memakai Klasik:', e); land.innerHTML = ''; klasik(); }
     }
-    land.appendChild(picker(k, function () { AWS.mount(land, o); window.scrollTo(0, 0); }));
     return k;
   };
+
+  /* pratinjau di dalam aplikasi: lapisan layar penuh; tautan dikunci agar tidak berpindah halaman */
+  AWS.preview = function (k, o) {
+    o = o || {}; if (!valid(k) || k === 'klasik') return false;
+    var old = document.getElementById('lp-prev'); if (old) old.remove();
+    var ov = document.createElement('div'); ov.id = 'lp-prev'; ov.className = 'lp-prev'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-label', 'Pratinjau halaman awal');
+    var nama = AWS.list().filter(function (x) { return x.k === k; })[0];
+    ov.innerHTML = '<div class="lp-bar"><span>Pratinjau: <b>' + esc(nama ? nama.n : k) + '</b></span><button type="button" class="lp-x" aria-label="Tutup pratinjau">Tutup</button></div><div class="lp-body"></div>';
+    document.body.appendChild(ov);
+    var prevOv = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    var save = S.timers; S.timers = [];
+    function tutup() { stopTimers(); S.timers = save; ov.remove(); document.body.style.overflow = prevOv; document.removeEventListener('keydown', esc_); }
+    function esc_(e) { if (e.key === 'Escape') tutup(); }
+    document.addEventListener('keydown', esc_);
+    ov.querySelector('.lp-x').addEventListener('click', tutup);
+    AWS.mount(ov.querySelector('.lp-body'), { logo: o.logo, versi: o.versi, model: k, lock: true });
+    ov.querySelector('.lp-x').focus();
+    return true;
+  };
+
 
 })(window);
