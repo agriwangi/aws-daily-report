@@ -1,4 +1,4 @@
-/* AWS Daily Report v1 — Mesin agregasi & aturan penilaian A1–A13 (dipakai bersama browser, Apps Script, uji Node).
+/* AWS Daily Report v1.0.5 — Mesin agregasi & aturan penilaian A1–A13 (dipakai bersama browser, Apps Script, uji Node).
    Salinan ke backend/Agg.gs dibuat otomatis oleh build.js. JANGAN edit salinannya. */
 (function (root) {
   'use strict';
@@ -78,6 +78,7 @@
     abs.forEach(function (o) {
       var y = +o.period.slice(0, 4), m = +o.period.slice(5, 7), n = o.hari.length;
       var ov = 0; for (var q0 = 1; q0 <= n; q0++) { var dq = o.period + '-' + pad(q0); if (inRange(dq, from, to)) ov++; }
+      if (!ov) return;   // periode absensi di luar rentang laporan: jangan dihitung sebagai karyawan
       var hkb = hkMap[o.period] || n;
       var rec = { hkNorm: (o.hitung === 0 ? 0 : hkb * ov / dim(y, m)), nama: o.nama, reg: o.reg, status: o.STATUS, dept: o.DEPT, kemandoran: o.KEMANDORAN, asisten: o.ASSISTEN, askep: o.ASKEP, divisi: o.DIVISI || o['SUB WILAYAH'] || '-', sub: o['SUB WILAYAH'], kode: {}, hk: 0, hadir: 0, mangkir: 0, absen: 0, maxBeruntun: 0, tglBeruntun: '' };
       var run = 0, runStart = '';
@@ -114,20 +115,22 @@
     Object.keys(mm).forEach(function (k) { byMandorName[mm[k].mandor] = mm[k]; });
     grd.forEach(function (r) {
       var o = byMandorName[r.mandor]; if (!o) return;
-      o.tkHarvest += r.tkHarvest; o.hkPetik += (r.absensi || r.tkHarvest); o.absensi += (r.abs ? (r.abs.M || 0) + (r.abs.P1 || 0) : 0);
+      o.tkHarvest += r.tkHarvest; o.hkPetik += (r.k > 0 ? r.k : Math.max(0, r.tkHarvest - (r.absensi || 0)));   // HK petik = jumlah orang HADIR memetik (kolom K (Org)) per hari o.absensi += (r.abs ? (r.abs.M || 0) + (r.abs.P1 || 0) : 0);
       hd(r.tgl).tkPetik += r.tkHarvest;
     });
     var lastDate = lastRek && lastRek < to ? lastRek : to;
     Object.keys(mm).forEach(function (k) {
-      var o = mm[k], bud = 0;
+      var o = mm[k], bud = 0, budSd = 0;
       Object.keys(o.budgetBulan).forEach(function (ym) {
-        var y = +ym.slice(0, 4), m = +ym.slice(5, 7), dm = dim(y, m);
-        var s = ym + '-01' > from ? ym + '-01' : from, e = ym + '-' + pad(dm) < lastDate ? ym + '-' + pad(dm) : lastDate;
-        if (e < s) return;
-        bud += o.budgetBulan[ym] * ((diffDays(s, e) + 1) / dm);
+        var y = +ym.slice(0, 4), m = +ym.slice(5, 7), dm = dim(y, m), awal = ym + '-01', akhir = ym + '-' + pad(dm);
+        var s = awal > from ? awal : from, e = akhir < to ? akhir : to;
+        if (e >= s) bud += o.budgetBulan[ym] * ((diffDays(s, e) + 1) / dm);          // SAMA DENGAN EXCEL: budget bulan penuh (bulan utuh) / prorata hari kalender (rentang sebagian)
+        var e2 = akhir < lastDate ? akhir : lastDate;
+        if (e2 >= s) budSd += o.budgetBulan[ym] * ((diffDays(s, e2) + 1) / dm);      // target berjalan s/d tanggal data terakhir (dasar peringatan A1/A2)
       });
-      o.budget = Math.round(bud); o.hariData = Object.keys(o.harian).length;
-      o.pctCapai = r1(div(o.kg, o.budget) * 100); o.selisih = o.kg - o.budget; o.pctSelisih = r1(div(o.selisih, o.budget) * 100);
+      o.budget = Math.round(bud * 10) / 10; o.budgetSd = Math.round(budSd * 10) / 10; o.hariData = Object.keys(o.harian).length;
+      o.pctCapai = r1(div(o.kg, o.budget) * 100); o.selisih = r1(o.kg - o.budget); o.pctSelisih = r1(div(o.selisih, o.budget) * 100);
+      o.pctCapaiSd = r1(div(o.kg, o.budgetSd) * 100); o.selisihSd = r1(o.kg - o.budgetSd); o.pctSelisihSd = r1(div(o.selisihSd, o.budgetSd) * 100);
       var tot = o.g1 + o.g2 + o.g3; o.pctG1 = r1(div(o.g1, tot) * 100); o.pctG2 = r1(div(o.g2, tot) * 100); o.pctG3 = r1(div(o.g3, tot) * 100);
       o.kgPerHk = r1(div(o.kg, o.hkPetik || o.tkHarvest));
       delete o.budgetBulan;
@@ -139,11 +142,11 @@
       var m = {};
       list.forEach(function (o) {
         var k = keyFn(o); var r = m[k] || (m[k] = { nama: k, jumlahMandor: 0, budget: 0, kg: 0, g1: 0, g2: 0, g3: 0, hkPetik: 0 });
-        r.jumlahMandor++; r.budget += o.budget; r.kg += o.kg; r.g1 += o.g1; r.g2 += o.g2; r.g3 += o.g3; r.hkPetik += (o.hkPetik || o.tkHarvest);
+        r.jumlahMandor++; r.budget = r1(r.budget + o.budget); r.budgetSd = r1((r.budgetSd || 0) + o.budgetSd); r.kg += o.kg; r.g1 += o.g1; r.g2 += o.g2; r.g3 += o.g3; r.hkPetik += (o.hkPetik || o.tkHarvest);
       });
       return Object.keys(m).map(function (k) {
         var r = m[k], tot = r.g1 + r.g2 + r.g3;
-        r.pctCapai = r1(div(r.kg, r.budget) * 100); r.selisih = r.kg - r.budget; r.pctG3 = r1(div(r.g3, tot) * 100); r.pctG1 = r1(div(r.g1, tot) * 100); r.kgPerHk = r1(div(r.kg, r.hkPetik));
+        r.pctCapai = r1(div(r.kg, r.budget) * 100); r.selisih = r1(r.kg - r.budget); r.pctG3 = r1(div(r.g3, tot) * 100); r.pctG1 = r1(div(r.g1, tot) * 100); r.kgPerHk = r1(div(r.kg, r.hkPetik));
         return r;
       }).sort(function (a, b) { return a.nama < b.nama ? -1 : 1; });
     }
@@ -161,11 +164,11 @@
 
     out.harian = Object.keys(harian).sort().map(function (d) { var h = harian[d]; h.pctAbsen = r2(div(h.absen, h.tk) * 100); h.pctMangkir = r2(div(h.mangkir, h.tk) * 100); h.pctHadir = r2(div(h.hadir, h.tk) * 100); return h; });
 
-    var T = { budget: 0, kg: 0, g1: 0, g2: 0, g3: 0, hk: 0, hkNorm: 0, hadir: 0, absen: 0, mangkir: 0, hkPetik: 0 };
-    out.mandor.forEach(function (o) { T.budget += o.budget; T.kg += o.kg; T.g1 += o.g1; T.g2 += o.g2; T.g3 += o.g3; T.hkPetik += (o.hkPetik || o.tkHarvest); });
+    var T = { budget: 0, budgetSd: 0, kg: 0, g1: 0, g2: 0, g3: 0, hk: 0, hkNorm: 0, hadir: 0, absen: 0, mangkir: 0, hkPetik: 0 };
+    out.mandor.forEach(function (o) { T.budget += o.budget; T.budgetSd += o.budgetSd; T.kg += o.kg; T.g1 += o.g1; T.g2 += o.g2; T.g3 += o.g3; T.hkPetik += (o.hkPetik || o.tkHarvest); });
     orang.forEach(function (o) { T.hk += o.hk; T.hkNorm += o.hkNorm; T.hadir += o.hadir; T.absen += o.absen; T.mangkir += o.mangkir; });
     var tg = T.g1 + T.g2 + T.g3;
-    out.kpi = { budget: T.budget, kg: T.kg, pctCapai: r1(div(T.kg, T.budget) * 100), selisih: T.kg - T.budget, g1: T.g1, g2: T.g2, g3: T.g3, pctG1: r1(div(T.g1, tg) * 100), pctG2: r1(div(T.g2, tg) * 100), pctG3: r1(div(T.g3, tg) * 100),
+    out.kpi = { budget: r1(T.budget), budgetSd: r1(T.budgetSd), tglBerjalan: lastDate, pctCapaiSd: r1(div(T.kg, T.budgetSd) * 100), kg: T.kg, pctCapai: r1(div(T.kg, T.budget) * 100), selisih: r1(T.kg - T.budget), g1: T.g1, g2: T.g2, g3: T.g3, pctG1: r1(div(T.g1, tg) * 100), pctG2: r1(div(T.g2, tg) * 100), pctG3: r1(div(T.g3, tg) * 100),
       karyawan: orang.length, hk: T.hk, hadir: T.hadir, pctHadir: r2(div(T.hadir, T.hk) * 100), pctAbsen: r2(div(T.absen, T.hkNorm || T.hk) * 100), pctMangkir: r2(div(T.mangkir, T.hkNorm || T.hk) * 100), mangkir: T.mangkir, hkNorm: r2(T.hkNorm), kgPerHk: r1(div(T.kg, T.hkPetik)), hariData: out.harian.filter(function (h) { return h.kg > 0; }).length, dataTerakhirProduksi: lastRek, dataTerakhirAbsensi: lastAbs };
     out.grade = { g1: T.g1, g2: T.g2, g3: T.g3 };
 
@@ -182,9 +185,9 @@
     }
     out.mandor.forEach(function (o) {
       var nm = o.mandor + ' (' + (o.divisi || '-') + (o.sub ? '/' + o.sub : '') + ')';
-      if (o.budget > 0 && o.hariData > 0) {
-        add('A1', level(rules.A1, o.pctCapai), 'mandor', nm, o.pctCapai, 'Pencapaian ' + o.pctCapai + '% dari budget');
-        add('A2', level(rules.A2, o.pctSelisih), 'mandor', nm, o.pctSelisih, 'Selisih ' + o.pctSelisih + '% terhadap budget (' + Math.round(o.selisih) + ' kg)');
+      if (o.budgetSd > 0 && o.hariData > 0) {
+        add('A1', level(rules.A1, o.pctCapaiSd), 'mandor', nm, o.pctCapaiSd, 'Pencapaian ' + o.pctCapaiSd + '% dari target berjalan s/d ' + lastDate);
+        add('A2', level(rules.A2, o.pctSelisihSd), 'mandor', nm, o.pctSelisihSd, 'Selisih ' + o.pctSelisihSd + '% terhadap target berjalan (' + Math.round(o.selisihSd) + ' kg)');
       }
       if (o.kg > 0) {
         add('A3', level(rules.A3, o.pctG3), 'mandor', nm, o.pctG3, 'Grade III ' + o.pctG3 + '% dari total petikan');

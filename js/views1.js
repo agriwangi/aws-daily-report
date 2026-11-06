@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.0 — halaman: Dashboard, Absensi, Produksi, Rekap */
+/* AWS Daily Report v1.0.5 — halaman: Dashboard, Absensi, Produksi, Rekap */
 (function (w) {
   'use strict';
   var V = APP.V, $ = U.$;
@@ -37,7 +37,7 @@
       body.insertAdjacentHTML('beforeend', UI.kpi([
         { l: 'Produksi', v: U.nf(k.kg) + ' kg', s: 'Budget ' + U.nf(k.budget) + ' kg' }, { l: 'Pencapaian', v: U.pct(k.pctCapai), s: (k.selisih >= 0 ? '▲ +' : '▼ ') + U.nf(k.selisih) + ' kg', kls: k.selisih >= 0 ? 'up' : 'dn' },
         { l: 'Kehadiran', v: U.pct(k.pctHadir, 2), s: U.nf(k.hadir) + ' dari ' + U.nf(k.hk) + ' HK' }, { l: 'Mangkir', v: U.pct(k.pctMangkir, 2), s: U.nf(k.mangkir) + ' hari', kls: k.pctMangkir > 1.5 ? 'dn' : '' },
-        { l: 'Kg per HK', v: U.nf(k.kgPerHk, 1), s: 'Produktivitas pemetik' }, { l: 'Grade I', v: U.pct(k.pctG1), s: 'Grade II ' + U.pct(k.pctG2) }, { l: 'Grade III', v: U.pct(k.pctG3), s: U.nf(k.g3) + ' kg', kls: k.pctG3 > 40 ? 'dn' : '' },
+        { l: 'Kg per HK', v: U.nf(k.kgPerHk, 1), s: 'Produksi ÷ orang hadir memetik' }, { l: 'Grade I', v: U.pct(k.pctG1), s: 'Grade II ' + U.pct(k.pctG2) }, { l: 'Grade III', v: U.pct(k.pctG3), s: U.nf(k.g3) + ' kg', kls: k.pctG3 > 40 ? 'dn' : '' },
         { l: 'Isu aktif', v: rep.ringkasIsu.merah + ' merah · ' + rep.ringkasIsu.kuning + ' kuning', s: U.nf(k.karyawan) + ' karyawan' }]));
       var g = grid(body, 'c2'); panel(g, 'd_harian', 'Produksi harian', function () { return SPEC.harianKg(rep); }, 'bar'); panel(g, 'd_grade', 'Komposisi grade', function () { return SPEC.gradeMix(rep); }, 'donut');
       g = grid(body); panel(g, 'd_divisi', 'Produksi vs budget per divisi', function () { return SPEC.divisiKg(rep); }, 'bar'); panel(g, 'd_absdiv', 'Absensi & mangkir per divisi (%)', function () { return SPEC.absDivisi(rep); }, 'bar');
@@ -100,7 +100,7 @@
   V.produksi = function (host) {
     APP.laman(host, { judul: 'Produksi', desk: 'Budget, realisasi, selisih, dan grade per mandor, asisten, dan divisi.', isi: function (body, rep) {
       var k = rep.kpi;
-      body.insertAdjacentHTML('beforeend', UI.kpi([{ l: 'Budget', v: U.nf(k.budget) + ' kg' }, { l: 'Produksi', v: U.nf(k.kg) + ' kg' }, { l: 'Pencapaian', v: U.pct(k.pctCapai), s: (k.selisih >= 0 ? '+' : '') + U.nf(k.selisih) + ' kg', kls: k.selisih >= 0 ? 'up' : 'dn' }, { l: 'Kg per HK', v: U.nf(k.kgPerHk, 1) }, { l: 'Grade I / II / III', v: U.pct(k.pctG1, 0) + ' / ' + U.pct(k.pctG2, 0) + ' / ' + U.pct(k.pctG3, 0) }]));
+      body.insertAdjacentHTML('beforeend', UI.kpi([{ l: 'Budget', v: U.nf(k.budget) + ' kg', s: (k.budgetSd && Math.abs(k.budgetSd - k.budget) > 0.5 ? 'Target s/d ' + U.tglID(k.tglBerjalan, true) + ': ' + U.nf(k.budgetSd) + ' kg (' + U.pct(k.pctCapaiSd) + ')' : '') }, { l: 'Produksi', v: U.nf(k.kg) + ' kg' }, { l: 'Pencapaian', v: U.pct(k.pctCapai), s: (k.selisih >= 0 ? '+' : '') + U.nf(k.selisih) + ' kg', kls: k.selisih >= 0 ? 'up' : 'dn' }, { l: 'Kg per HK', v: U.nf(k.kgPerHk, 1), s: 'Produksi ÷ orang hadir memetik' }, { l: 'Grade I / II / III', v: U.pct(k.pctG1, 0) + ' / ' + U.pct(k.pctG2, 0) + ' / ' + U.pct(k.pctG3, 0) }]));
       var kolPr = function (judulNama, kunci) { return [{ k: kunci, l: judulNama }, { k: 'budget', l: 'Budget (kg)', num: 1 }, { k: 'kg', l: 'Produksi (kg)', num: 1 }, { k: 'pctCapai', l: '% Capai', num: 1, f: function (v) { return UI.capaiBadge(v); } }, { k: 'selisih', l: 'Selisih (kg)', num: 1, f: function (v) { return '<span style="color:' + (v < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + (v > 0 ? '+' : '') + U.nf(v) + '</span>'; } }, { k: 'g1', l: 'Grade I', num: 1 }, { k: 'g2', l: 'Grade II', num: 1 }, { k: 'g3', l: 'Grade III', num: 1 }, { k: 'pctG1', l: '% G1', num: 1, d: 1 }, { k: 'pctG3', l: '% G3', num: 1, d: 1, f: function (v) { return '<span class="' + (v > 40 ? 'badge bad' : '') + '">' + U.pct(v) + '</span>'; } }, { k: 'kgPerHk', l: 'Kg/HK', num: 1, d: 1 }]; };
       tab(body, [
         ['mandor', 'Mandor', function (h) {
