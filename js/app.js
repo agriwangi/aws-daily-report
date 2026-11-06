@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.15 — kerangka aplikasi: halaman awal, masuk, menu, tema, periode, rute */
+/* AWS Daily Report v1.0.16 — kerangka aplikasi: halaman awal, masuk, menu, tema, periode, rute */
 (function (w) {
   'use strict';
   var APP = { S: { me: null, boot: null, status: null, rep: null, repKey: '', per: null, filter: {} }, V: {} };
@@ -25,7 +25,10 @@
   APP.boleh = function (idMenu) {
     var m = MENU.filter(function (x) { return x.id === idMenu; })[0]; if (!m || !APP.S.me) return false;
     if (idMenu === 'pengaturan' || idMenu === 'pengguna') return m.r.indexOf(APP.S.me.role) >= 0;   /* tetap */
-    if (idMenu === 'presentasi') return ['dashboard', 'absensi', 'produksi', 'isu'].every(APP.izin);   /* memuat semua bidang: hanya bagi peran yang boleh membuka keempatnya */
+    if (idMenu === 'presentasi') {   /* hak diatur di Pengaturan > Hak akses; bila server belum punya kuncinya, ikut hak keempat halaman sumbernya */
+      if (APP.S.boot && APP.S.boot.hak && APP.S.boot.hak.presentasi) return APP.izin('presentasi');
+      return ['dashboard', 'absensi', 'produksi', 'isu'].every(APP.izin);
+    }
     return APP.izin(idMenu);
   };
   APP.role = function () { return APP.S.me ? APP.S.me.role : ''; };
