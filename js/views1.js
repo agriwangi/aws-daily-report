@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.12 — halaman: Dashboard, Absensi, Produksi, Rekap */
+/* AWS Daily Report v1.0.13 — halaman: Dashboard, Absensi, Produksi, Rekap */
 (function (w) {
   'use strict';
   var V = APP.V, $ = U.$;
@@ -69,7 +69,7 @@
         }],
         ['orang', 'Per orang', function (h) {
           if (rep.orangTotal) h.insertAdjacentHTML('beforeend', '<div class="badge warn" style="display:block;border-radius:10px;padding:8px 12px;margin-bottom:10px;white-space:normal">Menampilkan ' + U.nf(rep.orang.length) + ' karyawan dengan ketidakhadiran tertinggi dari ' + U.nf(rep.orangTotal) + '. Gunakan filter divisi/asisten/mandor atau periode lebih pendek untuk daftar lengkap, atau ekspor Excel.</div>');
-          UI.tabel(h, [{ k: 'nama', l: 'Nama' }, { k: 'reg', l: 'REG', f: function (v) { return '<span class="mono">' + U.esc(v) + '</span>'; } }, { k: 'status', l: 'Status' }, { k: 'dept', l: 'Dept' }, { k: 'kemandoran', l: 'Kemandoran' }, { k: 'asisten', l: 'Asisten' }, { k: 'divisi', l: 'Divisi' }, { k: 'hk', l: 'HK', num: 1 }, { k: 'hadir', l: 'Hadir', num: 1 }, { k: 'mangkir', l: 'Mangkir', num: 1 }, { k: 'absen', l: 'Tdk hadir', num: 1 }, { k: 'maxBeruntun', l: 'Beruntun', num: 1, f: function (v, r) { return v >= 3 ? '<span class="badge ' + (v >= 5 ? 'bad' : 'warn') + '" title="Mulai ' + U.esc(r.tglBeruntun) + '">' + v + ' hari</span>' : (v || '–'); } }, { k: 'kode', l: 'Kode', f: function (v) { return Object.keys(v || {}).filter(function (c) { return ['K', 'MG', 'HB', 'OUT'].indexOf(c) < 0; }).map(function (c) { return U.kodeBadge(c) + '<small>×' + v[c] + '</small>'; }).join(' '); } }], rep.orang, { urut: 'absen', ukuran: 25 });
+          UI.tabel(h, [{ k: 'nama', l: 'Nama' }, { k: 'reg', l: 'REG', f: function (v) { return '<span class="mono">' + U.esc(v) + '</span>'; } }, { k: 'status', l: 'Status' }, { k: 'dept', l: 'Dept' }, { k: 'kemandoran', l: 'Kemandoran' }, { k: 'asisten', l: 'Asisten' }, { k: 'divisi', l: 'Divisi' }, { k: 'hk', l: 'HK', num: 1 }, { k: 'hadir', l: 'Hadir', num: 1 }, { k: 'mangkir', l: 'Mangkir', num: 1 }, { k: 'absen', l: 'Tdk hadir', num: 1 }, { k: 'maxBeruntun', l: 'Beruntun', num: 1, f: function (v, r) { return v >= 3 ? '<span class="badge ' + (v >= 5 ? 'bad' : 'warn') + '" title="Mulai ' + U.esc(r.tglBeruntun) + '">' + v + ' hari</span>' : (v || '–'); } }, { k: 'kode', l: 'Kode', f: function (v) { return Object.keys(v || {}).filter(function (c) { return ['K', 'MG', 'HB', 'OUT'].indexOf(c) < 0; }).map(function (c) { return U.kodeBadge(c) + '<small>×' + v[c] + '</small>'; }).join(' '); } }], rep.orang, { urut: 'absen', ukuran: 25, geser: true });
         }],
         ['kode', 'Kode absensi', function (h) {
           var g = grid(h); panel(g, 'a_kode', 'Sebaran kode (hari)', function () { return SPEC.kodeAll(rep); }, 'donut');

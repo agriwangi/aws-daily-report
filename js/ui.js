@@ -1,4 +1,4 @@
-/* AWS Daily Report v1.0.12 — komponen tampilan: tabel, KPI, kerangka muat, keadaan kosong */
+/* AWS Daily Report v1.0.13 — komponen tampilan: tabel, KPI, kerangka muat, keadaan kosong */
 (function (w) {
   'use strict';
   var UI = {};
@@ -19,6 +19,7 @@
     var st = { baris: baris || [], q: '', urut: opsi.urut || null, arah: opsi.arah || -1, hal: 0, ukuran: opsi.ukuran || 25 };
     host.innerHTML = (opsi.cari === false ? '' : '<div class="bar" style="margin-bottom:10px"><div style="position:relative;flex:1;min-width:200px;max-width:340px"><input type="search" placeholder="Cari…" aria-label="Cari di tabel" style="padding-left:34px"><span style="position:absolute;left:10px;top:9px;color:var(--muted)">' + U.ik('search', 18) + '</span></div><span class="muted" data-info></span>' + (opsi.aksi || '') + '</div>') + '<div class="tw card flush"><table class="t"><thead></thead><tbody></tbody></table></div><div class="pager"></div>';
     var thead = U.$('thead', host), tbody = U.$('tbody', host), pager = U.$('.pager', host), info = U.$('[data-info]', host), inp = U.$('input', host);
+    if (opsi.geser) UI.geser(U.$('.tw', host));
     function nilai(r, c) { return r[c.k]; }
     function olah() {
       var a = st.baris;
@@ -42,6 +43,19 @@
     if (inp) inp.addEventListener('input', U.debounce(function () { st.q = inp.value.trim(); st.hal = 0; gambar(); }, 200));
     gambar();
     return { set: function (b) { st.baris = b || []; st.hal = 0; gambar(); }, st: st };
+  };
+  /* v1.0.12 — tombol geser kiri/kanan + bilah geser selalu terlihat untuk tabel lebar (hanya tampil bila ada kolom tersembunyi) */
+  UI.geser = function (tw) {
+    if (!tw || tw._gs) return; tw._gs = 1; tw.classList.add('gs');
+    var bar = document.createElement('div'); bar.className = 'gs-bar'; bar.hidden = true;
+    bar.innerHTML = '<span class="muted gs-ket">Geser untuk melihat kolom lain</span><button type="button" class="gs-b" data-gs="-1" aria-label="Geser ke kiri">‹ Kiri</button><button type="button" class="gs-b" data-gs="1" aria-label="Geser ke kanan">Kanan ›</button>';
+    tw.parentNode.insertBefore(bar, tw);
+    function cek() { var lebar = tw.scrollWidth > tw.clientWidth + 2; bar.hidden = !lebar; var kiri = tw.scrollLeft <= 1, kanan = tw.scrollLeft + tw.clientWidth >= tw.scrollWidth - 1; var b = bar.querySelectorAll('button'); b[0].disabled = kiri; b[1].disabled = kanan; }
+    bar.addEventListener('click', function (e) { var b = e.target.closest('button[data-gs]'); if (!b || b.disabled) return; tw.scrollBy({ left: +b.dataset.gs * Math.max(200, Math.round(tw.clientWidth * 0.7)), behavior: 'smooth' }); });
+    tw.addEventListener('scroll', cek, { passive: true });
+    var ukur = U.debounce(function () { if (!document.body.contains(tw)) { window.removeEventListener('resize', ukur); return; } cek(); }, 120); window.addEventListener('resize', ukur);
+    if (window.MutationObserver) new MutationObserver(U.debounce(cek, 60)).observe(tw, { childList: true, subtree: true });
+    setTimeout(cek, 0);
   };
   /* penomoran halaman (hal & hm berbasis 1): Baris per halaman [..]  ‹ Sebelumnya 1 … 4 [5] 6 … 13 Berikutnya › */
   UI.pager = function (hal, hm, uk, daftarUk) {
@@ -123,7 +137,7 @@
         '<div class="xl-bar"><span class="muted" data-ket></span><div class="pager xl-pg"></div></div>' +
         '<div class="tw card flush xlw" tabindex="0" role="region" aria-label="Tabel hasil Excel; geser ke samping untuk melihat kolom lain"><table class="t xl"><thead>' + head.map(function (r, i) { return barisKepala(r, awalStk >= 0 && i >= awalStk ? 'stk' : ''); }).join('') + '</thead><tbody></tbody></table></div>' +
         '<div class="xl-bar"><span class="muted" data-ket></span><div class="pager xl-pg"></div></div></div>';
-      kok = host.firstChild; wrap = U.$('.xlw', kok); thead = U.$('thead', kok); tbody = U.$('tbody', kok);
+      kok = host.firstChild; wrap = U.$('.xlw', kok); UI.geser(wrap); thead = U.$('thead', kok); tbody = U.$('tbody', kok);
       kok.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('button[data-g]'); if (b && !b.disabled) pindah(+b.dataset.g); });
       kok.addEventListener('change', function (e) { var s = e.target; if (s && s.tagName === 'SELECT' && s.closest('.pg-uk')) { st.uk = +s.value; U.simpan('cm_uk', String(st.uk)); st.cache = {}; st.hal = 1; pindah(1); } });
       var ukur = U.debounce(function () { if (!document.body.contains(kok)) { w.removeEventListener('resize', ukur); return; } tataSticky(); }, 150); w.addEventListener('resize', ukur);
